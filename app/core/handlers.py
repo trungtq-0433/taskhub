@@ -1,9 +1,9 @@
-"""Global exception handlers producing the standard error envelope.
+"""Global exception handlers rendering RFC 9457 Problem Details.
 
-FastAPI would otherwise answer with `{"detail": ...}` in three different
-shapes — a string for `HTTPException`, a list for validation errors, nothing
-at all for an unhandled crash. Everything below funnels those into one shape
-so a client only ever parses `{"error": {...}}`.
+Left alone, FastAPI reports failures as `detail` in three different shapes — a
+string for `HTTPException`, a list of objects for validation errors, and
+nothing at all for an unhandled crash. Everything below funnels them into one
+documented shape, served as `application/problem+json`.
 """
 
 import logging
@@ -19,118 +19,135 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.config import settings
 from app.core.exceptions import AppError
 from app.core.middleware import get_request_id
-from app.schemas.base import ErrorBody, ErrorDetail, ErrorEnvelope
+from app.schemas.problem import (
+    PROBLEM_MEDIA_TYPE,
+    InvalidField,
+    ProblemDetail,
+    problem_type_uri,
+)
 
 logger = logging.getLogger(__name__)
 
-# Only where the HTTP phrase is not the code we want to publish.
-_CODE_OVERRIDES: dict[int, str] = {
-    HTTPStatus.UNPROCESSABLE_ENTITY: "validation_error",
-    HTTPStatus.TOO_MANY_REQUESTS: "rate_limited",
-    HTTPStatus.INTERNAL_SERVER_ERROR: "internal_error",
-}
 
-
-def error_code_for(status_code: int) -> str:
-    """Derive a stable error code from a status with no domain exception behind it."""
-    if status_code in _CODE_OVERRIDES:
-        return _CODE_OVERRIDES[status_code]
+def _problem_slug(status_code: int) -> str:
+    """Derive a `type` slug from a status with no domain exception behind it."""
     try:
-        return HTTPStatus(status_code).phrase.lower().replace(" ", "_")
+        return HTTPStatus(status_code).phrase.lower().replace(" ", "-")
     except ValueError:
         return "error"
 
 
-def _envelope(
+def _problem(
     request: Request,
     status_code: int,
-    code: str,
-    message: str,
-    details: list[ErrorDetail] | None = None,
+    slug: str,
+    title: str,
+    detail: str | None = None,
+    errors: list[InvalidField] | None = None,
 ) -> JSONResponse:
-    """Render the error envelope.
+    """Render a problem document.
 
-    `jsonable_encoder` rather than `model_dump()`: details may one day carry a
-    UUID, Decimal or datetime, and `JSONResponse` cannot serialize those.
+    `jsonable_encoder` rather than `model_dump()`: an `errors` entry may carry a
+    UUID, `datetime` or `Decimal`, and `JSONResponse` cannot serialize those.
     """
-    payload = ErrorEnvelope(
-        error=ErrorBody(
-            code=code,
-            message=message,
-            details=details or [],
-            request_id=get_request_id(request),
-        )
+    problem = ProblemDetail(
+        type=problem_type_uri(slug),
+        title=title,
+        status=status_code,
+        detail=detail,
+        instance=request.url.path,
+        errors=errors or None,
+        request_id=get_request_id(request),
     )
-    return JSONResponse(status_code=status_code, content=jsonable_encoder(payload))
+    return JSONResponse(
+        status_code=status_code,
+        content=jsonable_encoder(problem, exclude_none=True),
+        media_type=PROBLEM_MEDIA_TYPE,
+    )
 
 
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     """Domain errors raised by the service layer — expected, so logged quietly."""
     if exc.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
-        logger.error("%s: %s", exc.code, exc.message)
-    return _envelope(request, exc.status_code, exc.code, exc.message, exc.details)
+        logger.error("%s: %s", exc.problem_type, exc.detail)
+    return _problem(request, exc.status_code, exc.problem_type, exc.title, exc.detail, exc.errors)
 
 
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     """HTTPException from FastAPI itself (404, 405) or from a dependency."""
-    code = error_code_for(exc.status_code)
+    status = HTTPStatus(exc.status_code)
 
     # Starlette annotates `detail` as str, but FastAPI's subclass widens it to
-    # Any and callers do pass dicts. Typed as object so the branches below are
+    # Any and callers do pass dicts. Typed as object so both branches stay
     # reachable to the type checker as well as at runtime.
     detail: object = exc.detail
-    if isinstance(detail, str):
-        return _envelope(request, exc.status_code, code, detail)
+    text = detail if isinstance(detail, str) else None if detail is None else str(detail)
 
-    message = HTTPStatus(exc.status_code).phrase
-    details = [] if detail is None else [ErrorDetail(message=str(detail))]
-    return _envelope(request, exc.status_code, code, message, details)
+    # Starlette defaults `detail` to the status phrase. RFC 9457 wants `detail`
+    # to describe this occurrence, so a copy of the title earns nothing — drop
+    # it and let the member be absent.
+    if text == status.phrase:
+        text = None
+
+    return _problem(request, exc.status_code, _problem_slug(exc.status_code), status.phrase, text)
 
 
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
-    """Pydantic payload validation — one detail entry per offending field."""
-    details = [
-        ErrorDetail(
+    """Payload validation — one `errors` entry per offending field."""
+    errors = [
+        InvalidField(
             field=_field_path(error.get("loc", ())),
             message=str(error.get("msg", "Invalid value")),
             type=str(error["type"]) if error.get("type") else None,
         )
         for error in exc.errors()
     ]
-    return _envelope(
+    return _problem(
         request,
         HTTPStatus.UNPROCESSABLE_ENTITY,
-        "validation_error",
-        "Request validation failed.",
-        details,
+        "validation",
+        "Validation Failed",
+        "The request payload did not match the expected schema.",
+        errors,
     )
 
 
 async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
     """Constraint violations are a client conflict, not a server fault."""
     logger.warning("Integrity error: %s", exc.orig or exc)
-    return _envelope(
+    return _problem(
         request,
         HTTPStatus.CONFLICT,
         "conflict",
+        "Conflict",
         "The request conflicts with the current state of the database.",
     )
 
 
 async def sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
     logger.exception("Database error", exc_info=exc)
-    return _envelope(
-        request, HTTPStatus.INTERNAL_SERVER_ERROR, "database_error", "A database error occurred."
+    return _problem(
+        request,
+        HTTPStatus.INTERNAL_SERVER_ERROR,
+        "database-error",
+        "Internal Server Error",
+        "A database error occurred.",
     )
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Last line of defence — the cause goes to the log, never to the client."""
     logger.exception("Unhandled exception", exc_info=exc)
-    message = str(exc) if settings.debug else "An unexpected error occurred."
-    return _envelope(request, HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error", message)
+    detail = str(exc) if settings.debug else "An unexpected error occurred."
+    return _problem(
+        request,
+        HTTPStatus.INTERNAL_SERVER_ERROR,
+        "internal-error",
+        "Internal Server Error",
+        detail,
+    )
 
 
 def _field_path(loc: tuple[int | str, ...]) -> str | None:
@@ -149,16 +166,18 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(Exception, unhandled_exception_handler)
 
 
-# OpenAPI: without this, the schema keeps advertising FastAPI's default
-# `{"detail": [...]}` for 422 while the handlers above actually return the
-# error envelope. Applied app-wide so every route documents the truth.
+# OpenAPI: FastAPI advertises its own HTTPValidationError for 422 and says
+# nothing about the other failures. Declared app-wide so the schema documents
+# the problem document that is actually returned, with the right media type.
+_PROBLEM_CONTENT = {PROBLEM_MEDIA_TYPE: {"schema": ProblemDetail.model_json_schema()}}
+
 DEFAULT_ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
     HTTPStatus.UNPROCESSABLE_ENTITY: {
-        "model": ErrorEnvelope,
-        "description": "Request validation failed",
+        "description": "Validation failed",
+        "content": _PROBLEM_CONTENT,
     },
     HTTPStatus.INTERNAL_SERVER_ERROR: {
-        "model": ErrorEnvelope,
         "description": "Unexpected server error",
+        "content": _PROBLEM_CONTENT,
     },
 }

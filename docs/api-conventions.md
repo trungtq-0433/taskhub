@@ -3,105 +3,128 @@
 How this service shapes responses, reports errors, and where each concern lives.
 Every phase after the foundation is expected to follow this document.
 
-## 1. Response shape
+## 1. Responses are not enveloped
 
-Success — `meta` only appears when it carries something:
+A route returns its model. The HTTP status carries the outcome.
 
 ```json
-{ "data": { "id": 1, "title": "Ship v1" } }
-{ "data": [ ... ], "meta": { "page": 1, "per_page": 20, "total": 57, "total_pages": 3 } }
+GET /api/v1/tasks/1  →  200
+{ "id": 1, "title": "Ship v1", "status": "open" }
 ```
 
-Failure — one shape, always:
+This is what FastAPI is built around, and it keeps the generated OpenAPI schema —
+and therefore every generated client — describing the resource itself rather than
+a wrapper around it.
+
+Collections are the one place that needs somewhere to put counts, so they use
+`Page[T]` from `app/schemas/base.py`:
 
 ```json
+GET /api/v1/tasks  →  200
+{ "items": [ ... ], "total": 57, "page": 1, "size": 20, "pages": 3 }
+```
+
+Declare it as the return annotation — `async def list_tasks(...) -> Page[TaskRead]`
+— and FastAPI derives the response model from it. Nothing needs an explicit
+`response_model=` unless the declared return type differs from what should be
+serialized.
+
+## 2. Failures are RFC 9457 problem documents
+
+One shape for every failure, served as `application/problem+json`:
+
+```json
+POST /api/v1/tasks  →  422
 {
-  "error": {
-    "code": "validation_error",
-    "message": "Request validation failed.",
-    "details": [{ "field": "email", "message": "value is not a valid email address", "type": "value_error" }],
-    "request_id": "9f2c1e8a4b7d4c31a0e5f6d7c8b9a012"
-  }
+  "type": "urn:taskhub:problem:validation",
+  "title": "Validation Failed",
+  "status": 422,
+  "detail": "The request payload did not match the expected schema.",
+  "instance": "/api/v1/tasks",
+  "errors": [{ "field": "title", "message": "String should have at least 1 character", "type": "string_too_short" }],
+  "request_id": "9f2c1e8a4b7d4c31a0e5f6d7c8b9a012"
 }
 ```
 
-Build them with `ResponseEnvelope.of(...)` / `PaginatedEnvelope.of(...)` from
-`app/schemas/base.py`. Routers never assemble a dict by hand.
+`type`, `title`, `status`, `detail` and `instance` are the standard's registered
+members. `errors` and `request_id` are extension members, which RFC 9457 §3.2
+permits.
 
-### A note for people arriving from Rails
+What each member is for, in practice:
 
-Idiomatic FastAPI does **not** envelope. A route returns the model, and errors
-come back as `{"detail": ...}` in whatever shape raised them. This project
-enveloped deliberately, so two things follow that a Rails serializer gives you
-for free and FastAPI does not:
+- **`type`** identifies the *kind* of problem and is the only part clients should
+  branch on. It is a contract — narrow it per call site, never reword it casually.
+- **`title`** is a human-readable summary of that kind, constant for a given `type`.
+- **`detail`** explains *this one occurrence* and may be reworded freely. When it
+  would only repeat the title, it is omitted instead.
+- **`instance`** is the request path that produced the problem.
 
-- **The envelope must be declared, not just returned.** `response_model=ResponseEnvelope[TaskRead]`
-  is what keeps `/docs` honest. Return the envelope without declaring it and the
-  generated schema lies to every client that reads it.
-- **Overriding the error shape means overriding the docs too.** FastAPI hardcodes
-  `HTTPValidationError` into the OpenAPI schema for 422. `DEFAULT_ERROR_RESPONSES`
-  in `app/core/handlers.py` replaces it app-wide.
+A URN is used for `type` rather than an `https://` URL. The spec encourages a
+dereferenceable URI, but there is no documentation site to point at yet, and a URL
+that 404s is worse than an honest identifier. When docs are published the scheme
+changes and the suffix — the part clients match on — stays.
 
-There is no `rescue_from` and no `before_action`. The equivalents are the
-exception handlers in `app/core/handlers.py` and FastAPI dependencies.
-
-## 2. Raising errors
+## 3. Raising errors
 
 Services raise domain exceptions from `app/core/exceptions.py`. Routers do not
-raise `HTTPException`, and nothing builds a `JSONResponse` for an error.
+raise `HTTPException`, and nothing builds an error response by hand.
 
-| Exception | Status | `code` |
+| Exception | Status | `type` suffix |
 |---|---|---|
-| `NotFoundError` | 404 | `not_found` |
+| `NotFoundError` | 404 | `not-found` |
 | `ConflictError` | 409 | `conflict` |
-| `InvalidStateError` | 409 | `invalid_state` |
-| `BusinessRuleError` | 422 | `business_rule_violation` |
+| `InvalidStateError` | 409 | `invalid-state` |
+| `BusinessRuleError` | 422 | `business-rule-violation` |
 | `UnauthorizedError` | 401 | `unauthorized` |
 | `ForbiddenError` | 403 | `forbidden` |
-| `ServiceUnavailableError` | 503 | `service_unavailable` |
+| `ServiceUnavailableError` | 503 | `service-unavailable` |
 
 ```python
-raise ConflictError("Email already registered.", code="duplicate_email")
+raise ConflictError("Email already registered.", problem_type="duplicate-email")
 ```
 
-`code` is the client's contract — it may be narrowed per call site as above, but
-never reworded casually. `message` is for humans and may change freely.
+The first argument is `detail`. Narrowing `problem_type` gives the client something
+more specific than `conflict` to branch on, while the status and title stay put.
 
-**The 422 split matters.** `validation_error` means the payload did not match the
-schema; `business_rule_violation` means it did, and the domain refused it anyway.
+**The split at 422 matters.** `validation` means the payload did not match the
+schema; `business-rule-violation` means it did, and the domain refused it anyway.
 A client retries the first by fixing a field, and the second by doing something
 else entirely.
 
-## 3. What the handlers guarantee
+## 4. What the handlers guarantee
 
 Registered in `register_exception_handlers()`, narrowest type first:
 
-- `AppError` → its own status and code.
-- `RequestValidationError` → 422, one `details` entry per offending field, dotted path.
+- `AppError` → its own status, type and title.
+- `RequestValidationError` → 422, one `errors` entry per offending field, dotted path.
 - `IntegrityError` → 409, not a 500. A unique-constraint clash is the client's problem.
-- `SQLAlchemyError` → 500 `database_error`, cause logged, never returned.
-- `HTTPException` → reshaped into the envelope (this catches FastAPI's own 404/405).
-- `Exception` → 500 `internal_error`. The cause reaches the log only, unless `DEBUG`.
+- `SQLAlchemyError` → 500 `database-error`, cause logged, never returned.
+- `HTTPException` → converted to a problem document, which catches FastAPI's own 404/405.
+- `Exception` → 500 `internal-error`. The cause reaches the log only, unless `DEBUG`.
 
 Two things worth knowing:
 
-- Responses are rendered through `jsonable_encoder`, so a `details` entry may carry
+- Problems are rendered through `jsonable_encoder`, so an `errors` entry may carry
   a UUID, `datetime` or `Decimal` without blowing up in `JSONResponse`.
 - With `DEBUG=true`, Starlette intercepts unhandled exceptions ahead of our handler
-  and returns an HTML traceback instead of the envelope. That is a local-development
-  convenience, and why the 500 test builds an app with `DEBUG` off.
+  and returns an HTML traceback instead of a problem document. That is a
+  local-development convenience, and why the 500 test builds an app with `DEBUG` off.
 
-## 4. Correlation id
+`DEFAULT_ERROR_RESPONSES` declares the problem document app-wide in the OpenAPI
+schema. Without it FastAPI keeps advertising its own `HTTPValidationError` for 422,
+which is not what any route returns.
+
+## 5. Correlation id
 
 `RequestIDMiddleware` honours an inbound `X-Request-ID` or mints one, echoes it on
-every response, and every error envelope repeats it in `request_id`. That value is
+every response, and every problem document repeats it in `request_id`. That value is
 what ties a user's screenshot to a log line.
 
 Read it anywhere with `get_request_id()`. Inside an exception handler, pass the
 request — `get_request_id(request)` — because the context variable is already
 unwound by the time Starlette's server-error handler runs.
 
-## 5. Where logic lives
+## 6. Where logic lives
 
 ```
 router      routing, dependency injection, response shaping — no business logic
@@ -114,7 +137,7 @@ The request-scoped session from `SessionDep` is **not** committed by the depende
 Transactions are opened and committed in the service layer, which is where row
 locking belongs.
 
-## 6. Quality gate
+## 7. Quality gate
 
 Run all four before committing — they are cheap and catch different things:
 

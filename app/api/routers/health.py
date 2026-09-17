@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import settings
 from app.core.database import SessionDep
 from app.core.exceptions import ServiceUnavailableError
-from app.schemas.base import BaseSchema, ResponseEnvelope
+from app.schemas.base import BaseSchema
 
 router = APIRouter(tags=["health"])
 
@@ -22,31 +22,27 @@ class ReadinessStatus(HealthStatus):
     database: str
 
 
-@router.get("/health", response_model=ResponseEnvelope[HealthStatus])
-async def health() -> ResponseEnvelope[HealthStatus]:
+@router.get("/health")
+async def health() -> HealthStatus:
     """Liveness: the process is up and serving."""
-    return ResponseEnvelope.of(
-        HealthStatus(
-            status="ok",
-            version=settings.app_version,
-            environment=settings.environment,
-        )
+    return HealthStatus(
+        status="ok",
+        version=settings.app_version,
+        environment=settings.environment,
     )
 
 
-@router.get("/ready", response_model=ResponseEnvelope[ReadinessStatus])
-async def ready(session: SessionDep) -> ResponseEnvelope[ReadinessStatus]:
+@router.get("/ready")
+async def ready(session: SessionDep) -> ReadinessStatus:
     """Readiness: the process can reach its database."""
     try:
         await session.execute(text("SELECT 1"))
     except SQLAlchemyError as exc:
-        raise ServiceUnavailableError("Database is not reachable.") from exc
+        raise ServiceUnavailableError("The database is not reachable.") from exc
 
-    return ResponseEnvelope.of(
-        ReadinessStatus(
-            status="ok",
-            version=settings.app_version,
-            environment=settings.environment,
-            database="ok",
-        )
+    return ReadinessStatus(
+        status="ok",
+        version=settings.app_version,
+        environment=settings.environment,
+        database="ok",
     )

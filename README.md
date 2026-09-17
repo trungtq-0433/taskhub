@@ -75,57 +75,65 @@ cannot be separated without creating races.
 
 ## Response contract
 
-Success responses are enveloped. `meta` appears only when it carries something:
+A route returns its model; the HTTP status carries the outcome. No envelope:
 
 ```json
-{ "data": { "id": 1, "title": "Ship v1" } }
-{ "data": [ ... ], "meta": { "page": 1, "per_page": 20, "total": 57, "total_pages": 3 } }
+GET /api/v1/tasks/1  →  200
+{ "id": 1, "title": "Ship v1", "status": "open" }
 ```
 
-Failures always take one shape, whatever raised them:
+Collections need somewhere to put counts, so they use `Page[T]`:
 
 ```json
+GET /api/v1/tasks  →  200
+{ "items": [ ... ], "total": 57, "page": 1, "size": 20, "pages": 3 }
+```
+
+### Errors
+
+Failures are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem documents,
+served as `application/problem+json` — one shape for every failure, standardised
+rather than invented here:
+
+```json
+POST /api/v1/tasks  →  422
 {
-  "error": {
-    "code": "validation_error",
-    "message": "Request validation failed.",
-    "details": [{ "field": "email", "message": "value is not a valid email address", "type": "value_error" }],
-    "request_id": "9f2c1e8a4b7d4c31a0e5f6d7c8b9a012"
-  }
+  "type": "urn:taskhub:problem:validation",
+  "title": "Validation Failed",
+  "status": 422,
+  "detail": "The request payload did not match the expected schema.",
+  "instance": "/api/v1/tasks",
+  "errors": [{ "field": "title", "message": "String should have at least 1 character", "type": "string_too_short" }],
+  "request_id": "9f2c1e8a4b7d4c31a0e5f6d7c8b9a012"
 }
 ```
 
-`code` is the part clients branch on and is treated as a contract; `message` is
-for humans and may be reworded freely.
+`type` identifies the kind of problem and is the only part clients should branch
+on; `detail` explains the single occurrence and may be reworded freely. `errors`
+and `request_id` are extension members, which the spec permits.
 
-**This is not FastAPI's default.** The framework returns the model directly and
-reports errors as `detail` in three different shapes. Enveloping is a deliberate
-choice here, and it carries two obligations that are easy to miss — the envelope
-must be *declared* as `response_model`, not merely returned, or the generated
-OpenAPI schema misdescribes the route; and overriding the error shape means
-overriding FastAPI's hardcoded 422 schema too. Both are handled centrally, and a
-test asserts the schema actually points at `ErrorEnvelope`.
-
-### Errors
+Left to itself FastAPI reports failures as `detail` in three different shapes — a
+string, a list of objects, or nothing at all when something crashes. Handlers
+funnel all of them into the document above.
 
 Services raise domain exceptions from `app/core/exceptions.py`. Nothing in the
 codebase builds an error response by hand, and routers do not raise
 `HTTPException`.
 
-| Exception | Status | `code` |
+| Exception | Status | `type` suffix |
 |---|---|---|
-| `NotFoundError` | 404 | `not_found` |
+| `NotFoundError` | 404 | `not-found` |
 | `ConflictError` | 409 | `conflict` |
-| `InvalidStateError` | 409 | `invalid_state` |
-| `BusinessRuleError` | 422 | `business_rule_violation` |
+| `InvalidStateError` | 409 | `invalid-state` |
+| `BusinessRuleError` | 422 | `business-rule-violation` |
 | `UnauthorizedError` | 401 | `unauthorized` |
 | `ForbiddenError` | 403 | `forbidden` |
-| `ServiceUnavailableError` | 503 | `service_unavailable` |
+| `ServiceUnavailableError` | 503 | `service-unavailable` |
 
-The split at 422 is deliberate: `validation_error` means the payload did not
-match the schema, `business_rule_violation` means it did and the domain refused
-it anyway. A client fixes the first by correcting a field, and the second by
-doing something else entirely.
+The split at 422 is deliberate: `validation` means the payload did not match the
+schema, `business-rule-violation` means it did and the domain refused it anyway.
+A client fixes the first by correcting a field, and the second by doing something
+else entirely.
 
 Database constraint violations answer 409 rather than 500 — a unique-constraint
 clash is the client's problem, not a server fault. Unhandled exceptions answer
@@ -134,8 +142,8 @@ clash is the client's problem, not a server fault. Unhandled exceptions answer
 ### Request id
 
 Every response carries `X-Request-ID`, honouring an inbound one or minting it,
-and every error body repeats it. That single value is what connects a user's
-screenshot to a log line.
+and every problem document repeats it. That single value is what connects a
+user's screenshot to a log line.
 
 ## Quality gate
 

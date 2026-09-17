@@ -1,13 +1,26 @@
 """Shared pytest fixtures."""
 
-from collections.abc import AsyncGenerator, Awaitable, Callable
-from typing import Any
+from collections.abc import AsyncGenerator, Callable, Coroutine
+from typing import Any, Protocol
 
 import pytest
 from httpx import ASGITransport, AsyncClient, Response
 
 from app.core.config import settings
 from app.main import app
+
+
+class RouteClient(Protocol):
+    """Callable returned by the `route_client` fixture."""
+
+    def __call__(
+        self,
+        path: str,
+        endpoint: Callable[..., Any],
+        *,
+        params: dict[str, Any] | None = None,
+        raise_server_exceptions: bool = True,
+    ) -> Coroutine[Any, Any, Response]: ...
 
 
 @pytest.fixture
@@ -23,7 +36,7 @@ def api_prefix() -> str:
 
 
 @pytest.fixture
-def route_client() -> Callable[..., Awaitable[Response]]:
+def route_client() -> RouteClient:
     """Mount a throwaway route on the real app and call it.
 
     Exercising the actual application is the point: handler registration and

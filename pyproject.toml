@@ -15,6 +15,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "httpx>=0.28",
+    "mypy>=1.13",
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "ruff>=0.8",
@@ -37,3 +38,18 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 addopts = "-q"
+
+[tool.mypy]
+python_version = "3.12"
+files = ["app", "tests"]
+plugins = ["pydantic.mypy"]
+
+# Strict by default: the point of adding mypy is to catch what ruff cannot.
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+show_error_codes = true
+
+[tool.pydantic-mypy]
+init_typed = true
+warn_required_dynamic_aliases = true

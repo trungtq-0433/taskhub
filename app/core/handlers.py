@@ -74,10 +74,16 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     """HTTPException from FastAPI itself (404, 405) or from a dependency."""
     code = error_code_for(exc.status_code)
-    detail = exc.detail
-    message = detail if isinstance(detail, str) else HTTPStatus(exc.status_code).phrase
-    structured = not isinstance(detail, str) and detail is not None
-    details = [ErrorDetail(message=str(detail))] if structured else []
+
+    # Starlette annotates `detail` as str, but FastAPI's subclass widens it to
+    # Any and callers do pass dicts. Typed as object so the branches below are
+    # reachable to the type checker as well as at runtime.
+    detail: object = exc.detail
+    if isinstance(detail, str):
+        return _envelope(request, exc.status_code, code, detail)
+
+    message = HTTPStatus(exc.status_code).phrase
+    details = [] if detail is None else [ErrorDetail(message=str(detail))]
     return _envelope(request, exc.status_code, code, message, details)
 
 

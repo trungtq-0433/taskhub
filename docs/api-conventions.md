@@ -113,3 +113,20 @@ schema      request/response DTOs; responses exclude sensitive fields
 The request-scoped session from `SessionDep` is **not** committed by the dependency.
 Transactions are opened and committed in the service layer, which is where row
 locking belongs.
+
+## 6. Quality gate
+
+Run all four before committing — they are cheap and catch different things:
+
+```bash
+uv run ruff check .        # lint
+uv run ruff format .       # formatting
+uv run mypy                # types, strict across app/ and tests/
+uv run pytest              # tests
+```
+
+mypy runs in strict mode with the pydantic plugin. Keep it that way: it already
+caught an unreachable branch in the `HTTPException` handler that lint and tests
+both waved through. If a third-party stub forces an `# type: ignore`, pin the
+error code (`# type: ignore[arg-type]`) so an unrelated error is never hidden —
+`warn_unused_ignores` will tell you when one becomes obsolete.

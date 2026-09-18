@@ -160,6 +160,7 @@ checker but reachable at runtime. Lint did not see it and no test covered it.
 
 ## Further reading
 
+`docs/configuration.md` covers how settings resolve and which variables are required.
 `docs/api-conventions.md` holds the full contract — what each handler
 guarantees, how the correlation id survives Starlette's error path, and the
 conventions every later phase is expected to follow.

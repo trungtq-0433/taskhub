@@ -53,10 +53,19 @@ Then:
 | Readiness (checks the database) | `GET /api/v1/ready` |
 | OpenAPI UI | `/docs` · `/redoc` · `/openapi.json` |
 
-If port 5432 is already taken on your machine, set `POSTGRES_HOST_PORT` in
-`.env` and use the same port in `DATABASE_URL`. It is read by compose, not by
-the application, and only moves the host-side binding — the container still
-listens on 5432 inside the network.
+If port 5432 is already taken on your machine, create a
+`docker-compose.override.yml` — compose reads it automatically and git ignores
+it, so it stays yours:
+
+```yaml
+services:
+  db:
+    ports: !override        # replaces the port list instead of adding to it
+      - "5433:5432"
+```
+
+Then point `DATABASE_URL` in `.env` at the same host port. Only the host side
+moves; inside the compose network the database still listens on 5432.
 
 ## Layout
 

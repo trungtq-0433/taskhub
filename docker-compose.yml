@@ -12,8 +12,9 @@ services:
       POSTGRES_PASSWORD: taskhub
       POSTGRES_DB: taskhub
     ports:
-      # Host-side port only; change it if 5432 is taken on your machine.
-      - "${POSTGRES_HOST_PORT:-5432}:5432"
+      # Need a different host port? Put it in docker-compose.override.yml,
+      # which compose reads automatically and git ignores.
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

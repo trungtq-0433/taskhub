@@ -24,17 +24,22 @@ environments would quietly diverge.
 
 ## Quick start
 
-With Docker — the API waits on a Postgres healthcheck rather than racing it:
+With Docker — the API waits on a Postgres healthcheck rather than racing it.
+Compose supplies the container's own `DATABASE_URL`, so the placeholder in
+`.env` is not used on this path:
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-Against a local interpreter, with only the database in a container:
+Against a local interpreter, with only the database in a container. Here
+`DATABASE_URL` **must** be filled in with real values — `.env.example` ships
+placeholders:
 
 ```bash
 cp .env.example .env
+$EDITOR .env          # DATABASE_URL=postgresql+asyncpg://taskhub:taskhub@localhost:5432/taskhub
 docker compose up -d db
 uv sync
 uv run uvicorn app.main:app --reload
@@ -49,8 +54,9 @@ Then:
 | OpenAPI UI | `/docs` · `/redoc` · `/openapi.json` |
 
 If port 5432 is already taken on your machine, set `POSTGRES_HOST_PORT` in
-`.env` — it is read by compose, not by the application, and only moves the
-host-side binding.
+`.env` and use the same port in `DATABASE_URL`. It is read by compose, not by
+the application, and only moves the host-side binding — the container still
+listens on 5432 inside the network.
 
 ## Layout
 

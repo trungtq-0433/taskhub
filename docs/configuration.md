@@ -26,46 +26,65 @@ A field with no default is required. Miss one and the process refuses to start:
 
 ```
 pydantic_core.ValidationError: 1 validation error for Settings
-postgres_password
+DATABASE_URL
   Field required [type=missing]
 ```
 
-That is the intent — a missing database password should stop a deploy, not
-produce a service that fails on its first query.
+That is the intent — a missing database URL should stop a deploy, not produce a
+service that fails on its first query.
 
 | Variable | Why it is required |
 |---|---|
 | `ENVIRONMENT` | `local` / `test` / `staging` / `production`. Guessing it is how a deploy ends up in debug mode. A value outside the four is rejected. |
-| `POSTGRES_PASSWORD` | A secret must never carry a default. |
+| `DATABASE_URL` | The whole database connection, as one URL. No default, because a default would point somewhere. |
 
 Everything else has a default that is correct in every environment, so `.env`
-only needs to carry what actually differs.
+only carries what actually differs.
 
-## Guards that run at boot
+## The database is one URL, not five parts
 
-- `ENVIRONMENT` outside the four allowed values → refused.
-- `ENVIRONMENT=production` together with `DEBUG=true` → refused. Debug mode makes
-  Starlette answer unhandled exceptions with an HTML traceback instead of a
-  problem document, which leaks source paths.
+The application takes `DATABASE_URL` and nothing else about the database. That
+matches how every environment actually works: the database is provisioned first —
+by Terraform, by a managed provider's console, by the compose file locally — and
+it hands out a connection string.
 
-Both fail during `Settings()`, which runs at import time — so the container exits
-immediately rather than serving traffic in a bad state.
+Locally, the dev database's credentials belong to the container, so they are
+written directly in `docker-compose.yml`. They are provisioning values for a
+throwaway container, not application configuration, and giving them an `.env`
+entry only invites someone to think the application cares.
 
-## Database URL
+```yaml
+db:
+  environment:
+    POSTGRES_USER: taskhub        # this container's provisioning
+    POSTGRES_PASSWORD: taskhub
+    POSTGRES_DB: taskhub
 
-`database_url` is assembled by SQLAlchemy's `URL.create`, which percent-encodes
-the credentials. This matters: neither string concatenation nor pydantic's
-`PostgresDsn.build` escapes them, and a password containing `@` or `/` then
-produces a DSN pointing at a different host.
+api:
+  environment:
+    DATABASE_URL: postgresql+asyncpg://taskhub:taskhub@db:5432/taskhub
+```
+
+`POSTGRES_HOST_PORT` in `.env` is read by compose, not by the application — it
+moves the host-side port binding when 5432 is already taken.
+
+### The driver is normalised at boot
+
+Managed Postgres hands out `postgres://` or `postgresql://`. Both resolve to the
+*synchronous* driver, which fails inside an async engine with an error that says
+nothing about the cause. Those two are upgraded to `postgresql+asyncpg://`
+automatically; any other driver is refused at startup rather than at the first
+query.
 
 ```
-password p@ss/w#rd
-  PostgresDsn.build →  postgresql+asyncpg://taskhub:p@ss/w#rd@db.internal:5432/taskhub   ✗
-  URL.create        →  postgresql+asyncpg://taskhub:p%40ss%2Fw%23rd@db.internal:5432/taskhub   ✓
+postgres://…            →  postgresql+asyncpg://…     upgraded
+postgresql://…          →  postgresql+asyncpg://…     upgraded
+postgresql+psycopg2://… →  refused at boot
+not a url               →  refused at boot
 ```
 
-Setting `DATABASE_URL` overrides the whole thing, which is what managed providers
-(RDS, Neon, Supabase) hand out.
+Percent-encoded credentials survive the rewrite intact, which matters for
+generated passwords containing `@` or `/`.
 
 ## What does not belong in `.env`
 
@@ -76,3 +95,5 @@ has to decide them — and changing `API_PREFIX` is a breaking change, not a kno
 `APP_VERSION` is stated in both `config.py` and `pyproject.toml`. A test asserts
 the two match, so bumping one without the other fails the suite rather than
 making `/health` report a version the build does not have.
+
+Nor do the dev database's credentials: see above.

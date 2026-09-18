@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.engine import make_url
 
 from app.core.config import Settings, settings
 
@@ -12,7 +13,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # A Settings() built in a test would otherwise pick up the developer's own
 # .env; these tests supply every value explicitly instead.
-COMPLETE = {"environment": "local", "postgres_password": "secret"}
+COMPLETE = {
+    "environment": "local",
+    "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/taskhub",
+}
 
 
 def _settings(**overrides: object) -> Settings:
@@ -27,7 +31,7 @@ def test_app_version_matches_pyproject() -> None:
     assert settings.app_version == pyproject["project"]["version"]
 
 
-@pytest.mark.parametrize("missing", ["environment", "postgres_password"])
+@pytest.mark.parametrize("missing", ["environment", "DATABASE_URL"])
 def test_required_variable_missing_fails_the_boot(missing: str) -> None:
     """Omitting a required variable must fail loudly, naming the variable."""
     values = {key: value for key, value in COMPLETE.items() if key != missing}
@@ -51,15 +55,30 @@ def test_debug_is_refused_in_production() -> None:
     assert _settings(environment="staging", debug=True).debug
 
 
-def test_database_url_escapes_special_characters_in_the_password() -> None:
-    """A password with `@` or `/` must not corrupt the host part of the DSN."""
-    dsn = _settings(postgres_password="p@ss/w#rd", postgres_host="db.internal").database_url
+@pytest.mark.parametrize("scheme", ["postgres", "postgresql"])
+def test_synchronous_scheme_is_upgraded_to_asyncpg(scheme: str) -> None:
+    """Managed providers hand out sync schemes; the async engine cannot use them."""
+    dsn = _settings(DATABASE_URL=f"{scheme}://u:p@managed.example:5432/prod").database_url
+
+    assert dsn.startswith("postgresql+asyncpg://")
+    assert "@managed.example:5432/prod" in dsn
+
+
+def test_a_driver_we_cannot_run_is_refused_at_boot() -> None:
+    with pytest.raises(ValidationError, match="postgresql\\+asyncpg driver"):
+        _settings(DATABASE_URL="postgresql+psycopg2://u:p@host:5432/db")
+
+
+def test_an_unparseable_url_is_refused_at_boot() -> None:
+    with pytest.raises(ValidationError, match="not a valid database URL"):
+        _settings(DATABASE_URL="this is not a url")
+
+
+def test_password_special_characters_survive_normalisation() -> None:
+    """Percent-encoding in the supplied DSN must not be mangled on the way through."""
+    dsn = _settings(
+        DATABASE_URL="postgresql://u:p%40ss%2Fw%23rd@db.internal:5432/taskhub"
+    ).database_url
 
     assert "@db.internal" in dsn
-    assert "p%40ss%2Fw%23rd" in dsn
-
-
-def test_database_url_override_wins_over_the_parts() -> None:
-    managed = "postgresql+asyncpg://u:p@managed.example:5432/prod"
-
-    assert _settings(DATABASE_URL=managed).database_url == managed
+    assert make_url(dsn).password == "p@ss/w#rd"

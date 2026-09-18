@@ -48,8 +48,9 @@ Then:
 | Readiness (checks the database) | `GET /api/v1/ready` |
 | OpenAPI UI | `/docs` · `/redoc` · `/openapi.json` |
 
-If port 5432 is already taken on your machine, set `POSTGRES_PORT` in `.env` —
-it only moves the host-side binding, not the port inside the network.
+If port 5432 is already taken on your machine, set `POSTGRES_HOST_PORT` in
+`.env` — it is read by compose, not by the application, and only moves the
+host-side binding.
 
 ## Layout
 

@@ -14,9 +14,10 @@ on a guess. That is deliberate for anything environment-specific or secret.
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import Field, computed_field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import URL
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 
 class Settings(BaseSettings):
@@ -44,11 +45,12 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # --- Database --------------------------------------------------------
-    postgres_host: str = "localhost"
-    postgres_port: int = 5432
-    postgres_user: str = "taskhub"
-    postgres_password: str  # required: a secret must never have a default
-    postgres_db: str = "taskhub"
+    # One URL, not five parts. Production hands this out at provision time
+    # (RDS, Neon, Supabase, a Terraform output); compose supplies it for local.
+    database_url: str = Field(
+        alias="DATABASE_URL",
+        description="Async Postgres DSN, e.g. postgresql+asyncpg://user:pass@host:5432/db",
+    )
 
     # SQLAlchemy engine tuning — sensible defaults, raise them under load.
     db_echo: bool = False
@@ -57,29 +59,30 @@ class Settings(BaseSettings):
     db_pool_pre_ping: bool = True
     db_pool_recycle: int = 1800
 
-    # Managed databases hand out one ready-made DSN instead of the parts above.
-    database_url_override: str | None = Field(default=None, alias="DATABASE_URL")
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def _require_async_driver(cls, value: str) -> str:
+        """Accept the DSN a provider gives you, and make it usable with asyncpg.
 
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def database_url(self) -> str:
-        """Async DSN used by the SQLAlchemy engine.
-
-        Assembled with SQLAlchemy's own `URL.create`, which percent-encodes the
-        credentials. Neither string concatenation nor `PostgresDsn.build` does:
-        a password containing `@` or `/` would silently produce a DSN aimed at
-        a different host entirely.
+        Managed Postgres hands out `postgres://` or `postgresql://`, both of
+        which resolve to the *synchronous* driver and fail inside an async
+        engine with an error that says nothing about the cause. The two
+        well-known synchronous schemes are upgraded; anything else is refused
+        here rather than at the first query.
         """
-        if self.database_url_override:
-            return self.database_url_override
-        return URL.create(
-            drivername="postgresql+asyncpg",
-            username=self.postgres_user,
-            password=self.postgres_password,
-            host=self.postgres_host,
-            port=self.postgres_port,
-            database=self.postgres_db,
-        ).render_as_string(hide_password=False)
+        try:
+            url = make_url(value)
+        except ArgumentError as exc:
+            raise ValueError(f"DATABASE_URL is not a valid database URL: {exc}") from exc
+
+        if url.drivername in ("postgres", "postgresql"):
+            url = url.set(drivername="postgresql+asyncpg")
+        elif url.drivername != "postgresql+asyncpg":
+            raise ValueError(
+                f"DATABASE_URL must use the postgresql+asyncpg driver, got {url.drivername!r}."
+            )
+
+        return url.render_as_string(hide_password=False)
 
     @model_validator(mode="after")
     def _refuse_debug_in_production(self) -> Self:

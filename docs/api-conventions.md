@@ -165,11 +165,18 @@ upward, so the rule has no exceptions — not even a one-line `SELECT 1`.
 
 ### Catching database failures
 
+A constraint for the services that arrive with the entities; nothing catches
+these yet.
+
 `except SQLAlchemyError` does **not** cover an unreachable database. When the
 connection itself cannot be made, asyncpg raises the asyncio error unwrapped —
 `ConnectionRefusedError`, `socket.gaierror`, `TimeoutError` — and SQLAlchemy
-never sees it. Code that must distinguish "the database is down" from "the query
-was wrong" catches `(SQLAlchemyError, OSError)`.
+never sees it. So a service that needs to tell "the database is down" apart from
+"the query was wrong" catches `(SQLAlchemyError, OSError)`.
+
+Left uncaught, those reach `unhandled_exception_handler` and answer **500**
+`internal-error`, when 503 is what a client and a load balancer both need to
+see.
 
 ## 7. Quality gate
 

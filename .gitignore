@@ -17,6 +17,9 @@ htmlcov/
 .env.*
 !.env.example
 
+# Per-developer compose tweaks (host ports, extra services)
+docker-compose.override.yml
+
 # Editors / OS
 .idea/
 .vscode/

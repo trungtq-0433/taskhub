@@ -31,7 +31,11 @@ serialized.
 
 ## 2. Failures are RFC 9457 problem documents
 
-One shape for every failure, served as `application/problem+json`:
+Left to itself, FastAPI reports failures as `detail` in three different shapes —
+a string for `HTTPException`, a list of objects for validation errors, and
+nothing at all when something crashes — so a client would need three branches to
+parse one concept. The handlers funnel all of them into one shape, served as
+`application/problem+json`:
 
 ```json
 POST /api/v1/tasks  →  422

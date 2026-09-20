@@ -62,6 +62,9 @@ services:
 Then point `DATABASE_URL` in `.env` at the same host port. Only the host side
 moves; inside the compose network the database still listens on 5432.
 
+Settings, the required variables and what happens when one is missing:
+[docs/configuration.md](docs/configuration.md).
+
 ## Layout
 
 ```
@@ -79,82 +82,30 @@ repositories hold no business rules.** A router injects a service and shapes the
 response; a service decides what is allowed and owns the transaction; a
 repository only knows how to ask the database.
 
-One consequence worth knowing up front: the request-scoped session from
-`SessionDep` rolls back on failure but **never commits**. Committing belongs to
-the service layer, because that is also where row locking will live, and the two
-cannot be separated without creating races.
-
 ## Response contract
 
-A route returns its model; the HTTP status carries the outcome. No envelope:
+A route returns its model and the HTTP status carries the outcome — no envelope.
+Failures are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem
+documents, served as `application/problem+json`:
 
 ```json
-GET /api/v1/tasks/1  →  200
-{ "id": 1, "title": "Ship v1", "status": "open" }
+GET /api/v1/tasks/1   →  200   { "id": 1, "title": "Ship v1", "status": "open" }
+
+GET /api/v1/tasks/99  →  404   { "type": "urn:taskhub:problem:task-not-found",
+                                 "title": "Not Found", "status": 404,
+                                 "detail": "Task 99 does not exist.",
+                                 "instance": "/api/v1/tasks/99",
+                                 "request_id": "9f2c1e8a…" }
 ```
 
-Collections need somewhere to put counts, so they use `Page[T]`:
+`type` is the part clients branch on. Every response also carries an
+`X-Request-ID` header, repeated in the problem body, which is what ties a user's
+screenshot to a log line.
 
-```json
-GET /api/v1/tasks  →  200
-{ "items": [ ... ], "total": 57, "page": 1, "size": 20, "pages": 3 }
-```
-
-### Errors
-
-Failures are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem documents,
-served as `application/problem+json` — one shape for every failure, standardised
-rather than invented here:
-
-```json
-POST /api/v1/tasks  →  422
-{
-  "type": "urn:taskhub:problem:validation",
-  "title": "Validation Failed",
-  "status": 422,
-  "detail": "The request payload did not match the expected schema.",
-  "instance": "/api/v1/tasks",
-  "errors": [{ "field": "title", "message": "String should have at least 1 character", "type": "string_too_short" }],
-  "request_id": "9f2c1e8a4b7d4c31a0e5f6d7c8b9a012"
-}
-```
-
-`type` identifies the kind of problem and is the only part clients should branch
-on; `detail` explains the single occurrence and may be reworded freely. `errors`
-and `request_id` are extension members, which the spec permits.
-
-Left to itself FastAPI reports failures as `detail` in three different shapes — a
-string, a list of objects, or nothing at all when something crashes. Handlers
-funnel all of them into the document above.
-
-Services raise domain exceptions from `app/core/exceptions.py`. Nothing in the
-codebase builds an error response by hand, and routers do not raise
-`HTTPException`.
-
-| Exception | Status | `type` suffix |
-|---|---|---|
-| `NotFoundError` | 404 | `not-found` |
-| `ConflictError` | 409 | `conflict` |
-| `InvalidStateError` | 409 | `invalid-state` |
-| `BusinessRuleError` | 422 | `business-rule-violation` |
-| `UnauthorizedError` | 401 | `unauthorized` |
-| `ForbiddenError` | 403 | `forbidden` |
-| `ServiceUnavailableError` | 503 | `service-unavailable` |
-
-The split at 422 is deliberate: `validation` means the payload did not match the
-schema, `business-rule-violation` means it did and the domain refused it anyway.
-A client fixes the first by correcting a field, and the second by doing something
-else entirely.
-
-Database constraint violations answer 409 rather than 500 — a unique-constraint
-clash is the client's problem, not a server fault. Unhandled exceptions answer
-500 with the cause written to the log and never to the response body.
-
-### Request id
-
-Every response carries `X-Request-ID`, honouring an inbound one or minting it,
-and every problem document repeats it. That single value is what connects a
-user's screenshot to a log line.
+The full contract — the domain exception table, what each handler guarantees,
+and the reasoning behind the choices — is
+[docs/api-conventions.md](docs/api-conventions.md). Every phase after this one
+is expected to follow it.
 
 ## Quality gate
 
@@ -168,10 +119,3 @@ uv run pytest          # tests
 mypy runs strict with the pydantic plugin, and it earns the cost: on its first
 run it found a branch in the `HTTPException` handler that was dead to the type
 checker but reachable at runtime. Lint did not see it and no test covered it.
-
-## Further reading
-
-`docs/configuration.md` covers how settings resolve and which variables are required.
-`docs/api-conventions.md` holds the full contract — what each handler
-guarantees, how the correlation id survives Starlette's error path, and the
-conventions every later phase is expected to follow.

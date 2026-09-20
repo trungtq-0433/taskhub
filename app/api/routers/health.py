@@ -1,13 +1,10 @@
 """Liveness and readiness endpoints."""
 
 from fastapi import APIRouter
-from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
-from app.core.database import SessionDep
-from app.core.exceptions import ServiceUnavailableError
 from app.schemas.base import BaseSchema
+from app.services.health import HealthServiceDep
 
 router = APIRouter(tags=["health"])
 
@@ -33,12 +30,9 @@ async def health() -> HealthStatus:
 
 
 @router.get("/ready")
-async def ready(session: SessionDep) -> ReadinessStatus:
+async def ready(service: HealthServiceDep) -> ReadinessStatus:
     """Readiness: the process can reach its database."""
-    try:
-        await session.execute(text("SELECT 1"))
-    except SQLAlchemyError as exc:
-        raise ServiceUnavailableError("The database is not reachable.") from exc
+    await service.check_database()
 
     return ReadinessStatus(
         status="ok",

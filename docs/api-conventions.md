@@ -137,6 +137,36 @@ The request-scoped session from `SessionDep` is **not** committed by the depende
 Transactions are opened and committed in the service layer, which is where row
 locking belongs.
 
+**Routers do not take `SessionDep`.** They depend on a service, and the service
+takes the session. `app/services/health.py` is the smallest example of the shape:
+
+```python
+class HealthService:
+    def __init__(self, session: SessionDep) -> None:
+        self._session = session
+
+HealthServiceDep = Annotated[HealthService, Depends()]
+```
+
+`Depends()` with no argument tells FastAPI to build the class and resolve its
+`__init__` annotations, so the router never sees a session:
+
+```python
+async def ready(service: HealthServiceDep) -> ReadinessStatus:
+    await service.check_database()
+```
+
+A router reaching for a session directly is how query logic starts leaking
+upward, so the rule has no exceptions — not even a one-line `SELECT 1`.
+
+### Catching database failures
+
+`except SQLAlchemyError` does **not** cover an unreachable database. When the
+connection itself cannot be made, asyncpg raises the asyncio error unwrapped —
+`ConnectionRefusedError`, `socket.gaierror`, `TimeoutError` — and SQLAlchemy
+never sees it. Code that must distinguish "the database is down" from "the query
+was wrong" catches `(SQLAlchemyError, OSError)`.
+
 ## 7. Quality gate
 
 Run all four before committing — they are cheap and catch different things:

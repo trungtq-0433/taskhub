@@ -6,7 +6,6 @@ from typing import Any, Protocol
 import pytest
 from httpx import ASGITransport, AsyncClient, Response
 
-from app.core.config import settings
 from app.main import app
 
 
@@ -28,11 +27,6 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
-
-
-@pytest.fixture
-def api_prefix() -> str:
-    return settings.api_prefix
 
 
 @pytest.fixture

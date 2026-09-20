@@ -138,22 +138,22 @@ Transactions are opened and committed in the service layer, which is where row
 locking belongs.
 
 **Routers do not take `SessionDep`.** They depend on a service, and the service
-takes the session. `app/services/health.py` is the smallest example of the shape:
+takes the session:
 
 ```python
-class HealthService:
+class TaskService:
     def __init__(self, session: SessionDep) -> None:
         self._session = session
 
-HealthServiceDep = Annotated[HealthService, Depends()]
+TaskServiceDep = Annotated[TaskService, Depends()]
 ```
 
 `Depends()` with no argument tells FastAPI to build the class and resolve its
 `__init__` annotations, so the router never sees a session:
 
 ```python
-async def ready(service: HealthServiceDep) -> ReadinessStatus:
-    await service.check_database()
+async def get_task(task_id: int, service: TaskServiceDep) -> TaskRead:
+    return await service.get(task_id)
 ```
 
 A router reaching for a session directly is how query logic starts leaking

@@ -1,8 +1,8 @@
-"""Aggregate router mounted under the configured API prefix."""
+"""Aggregate router mounted under the configured API prefix.
+
+Resource routers are added here as the phases land.
+"""
 
 from fastapi import APIRouter
 
-from app.api.routers import health
-
 api_router = APIRouter()
-api_router.include_router(health.router)

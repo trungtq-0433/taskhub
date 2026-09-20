@@ -45,13 +45,8 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
-Then:
-
-| | |
-|---|---|
-| Liveness | `GET /api/v1/health` |
-| Readiness (checks the database) | `GET /api/v1/ready` |
-| OpenAPI UI | `/docs` · `/redoc` · `/openapi.json` |
+The API serves `/docs`, `/redoc` and `/openapi.json`. There are no resource
+endpoints yet — those arrive with the entities.
 
 If port 5432 is already taken on your machine, create a
 `docker-compose.override.yml` — compose reads it automatically and git ignores

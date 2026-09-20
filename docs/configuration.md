@@ -94,6 +94,6 @@ has to decide them — and changing `API_PREFIX` is a breaking change, not a kno
 
 `APP_VERSION` is stated in both `config.py` and `pyproject.toml`. A test asserts
 the two match, so bumping one without the other fails the suite rather than
-making `/health` report a version the build does not have.
+letting the application report a version the build does not have.
 
 Nor do the dev database's credentials: see above.

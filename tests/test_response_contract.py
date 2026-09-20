@@ -1,4 +1,9 @@
-"""The response contract: plain models on success, RFC 9457 problems on failure."""
+"""The response contract: plain models on success, RFC 9457 problems on failure.
+
+No resource endpoints exist yet, so the contract is exercised against a sample
+route mounted here. That keeps these tests about the contract itself rather
+than about whichever endpoint happens to exist.
+"""
 
 from http import HTTPStatus
 
@@ -9,22 +14,33 @@ from httpx import ASGITransport, AsyncClient
 from app.core.config import settings
 from app.core.exceptions import ConflictError
 from app.main import app, create_app
-from app.schemas.base import Page
+from app.schemas.base import BaseSchema, Page
 from app.schemas.problem import PROBLEM_MEDIA_TYPE
 from tests.conftest import RouteClient
 
+SAMPLE_PATH = "/_contract/sample"
 
-async def test_success_response_is_the_model_itself(client: AsyncClient, api_prefix: str) -> None:
-    response = await client.get(f"{api_prefix}/health")
+
+class Sample(BaseSchema):
+    id: int
+    name: str
+
+
+async def _sample() -> Sample:
+    return Sample(id=1, name="Ship v1")
+
+
+app.router.add_api_route(SAMPLE_PATH, _sample, methods=["GET"])
+app.openapi_schema = None
+
+
+async def test_success_response_is_the_model_itself(client: AsyncClient) -> None:
+    response = await client.get(SAMPLE_PATH)
 
     assert response.status_code == HTTPStatus.OK
     assert response.headers["content-type"].startswith("application/json")
     # No envelope: the model is the body.
-    assert response.json() == {
-        "status": "ok",
-        "version": settings.app_version,
-        "environment": settings.environment,
-    }
+    assert response.json() == {"id": 1, "name": "Ship v1"}
 
 
 def test_page_computes_its_page_count() -> None:
@@ -96,15 +112,13 @@ async def test_absent_members_are_omitted(client: AsyncClient) -> None:
     assert "errors" not in problem
 
 
-async def test_request_id_is_echoed_and_minted_per_request(
-    client: AsyncClient, api_prefix: str
-) -> None:
-    first = await client.get(f"{api_prefix}/health")
-    second = await client.get(f"{api_prefix}/health")
+async def test_request_id_is_echoed_and_minted_per_request(client: AsyncClient) -> None:
+    first = await client.get(SAMPLE_PATH)
+    second = await client.get(SAMPLE_PATH)
 
     assert first.headers["x-request-id"] != second.headers["x-request-id"]
 
-    supplied = await client.get(f"{api_prefix}/health", headers={"X-Request-ID": "trace-abc"})
+    supplied = await client.get(SAMPLE_PATH, headers={"X-Request-ID": "trace-abc"})
     assert supplied.headers["x-request-id"] == "trace-abc"
 
 
@@ -139,14 +153,12 @@ async def test_openapi_documents_the_problem_document() -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         schema = (await ac.get("/openapi.json")).json()
 
-    health = schema["paths"]["/api/v1/health"]["get"]["responses"]
+    sample = schema["paths"][SAMPLE_PATH]["get"]["responses"]
 
     # Success is documented as the bare model, not an envelope.
-    ok_schema = health["200"]["content"]["application/json"]["schema"]
-    assert ok_schema["$ref"].endswith("/HealthStatus")
+    assert sample["200"]["content"]["application/json"]["schema"]["$ref"].endswith("/Sample")
 
     # And 422 is the problem document, with the right media type — FastAPI
     # would otherwise advertise its own HTTPValidationError here.
-    assert PROBLEM_MEDIA_TYPE in health["422"]["content"]
-    problem_schema = health["422"]["content"][PROBLEM_MEDIA_TYPE]["schema"]
-    assert problem_schema["title"] == "ProblemDetail"
+    assert PROBLEM_MEDIA_TYPE in sample["422"]["content"]
+    assert sample["422"]["content"][PROBLEM_MEDIA_TYPE]["schema"]["title"] == "ProblemDetail"

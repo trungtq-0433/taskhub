@@ -7,10 +7,9 @@ mocked driver would have kept that test green.
 """
 
 import os
+import subprocess
 from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -45,10 +44,11 @@ def assert_not_the_dev_database(url: str) -> None:
     the whole harness runs it on every session. Getting this wrong once costs
     someone their local data.
     """
-    if make_url(url).database == make_url(settings.database_url).database:
+    target = make_url(url).database
+    if target == make_url(settings.database_url).database:
         raise RuntimeError(
             f"Refusing to run tests against the development database "
-            f"({make_url(url).database!r}). Set TEST_DATABASE_URL to something else."
+            f"({target!r}). Set TEST_DATABASE_URL to something else."
         )
 
 
@@ -84,8 +84,15 @@ def migrate(url: str) -> None:
     from the model classes and never executes a migration, so it cannot catch
     the case this suite most needs to catch — a model changed and nobody
     generated the migration.
+
+    Run as a subprocess with DATABASE_URL set, which is the same mechanism
+    production uses. The alternative — driving Alembic in-process — means
+    teaching env.py about a second source for the DSN, and it cannot be called
+    from inside a running event loop because env.py calls asyncio.run().
     """
-    config = Config(str(PROJECT_ROOT / "alembic.ini"))
-    config.set_main_option("script_location", str(PROJECT_ROOT / "migrations"))
-    config.set_main_option("sqlalchemy.url", url)
-    command.upgrade(config, "head")
+    subprocess.run(
+        ["alembic", "upgrade", "head"],
+        cwd=PROJECT_ROOT,
+        env={**os.environ, "DATABASE_URL": url},
+        check=True,
+    )

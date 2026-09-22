@@ -119,3 +119,9 @@ uv run pytest          # tests
 mypy runs strict with the pydantic plugin, and it earns the cost: on its first
 run it found a branch in the `HTTPException` handler that was dead to the type
 checker but reachable at runtime. Lint did not see it and no test covered it.
+
+**`pytest` needs Postgres running** (`docker compose up -d db`). It creates a
+separate `taskhub_test` database on first run and applies the migrations to it —
+your development data is never touched, and `TEST_DATABASE_URL` overrides the
+target. Each test runs inside a transaction that is rolled back afterwards, so
+tests cannot see each other's writes even when they commit.

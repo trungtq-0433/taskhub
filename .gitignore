@@ -20,6 +20,11 @@ htmlcov/
 # Per-developer compose tweaks (host ports, extra services)
 docker-compose.override.yml
 
+# Planning artefacts: blueprints, phase files, review reports, evidence.
+# They belong to the working session, not to the codebase — the decisions
+# that outlive a session are written into docs/ and into commit messages.
+plans/
+
 # Editors / OS
 .idea/
 .vscode/

@@ -20,10 +20,12 @@ htmlcov/
 # Per-developer compose tweaks (host ports, extra services)
 docker-compose.override.yml
 
-# Planning artefacts: blueprints, phase files, review reports, evidence.
-# They belong to the working session, not to the codebase — the decisions
-# that outlive a session are written into docs/ and into commit messages.
+# Working notes: blueprints, phase files, review evidence, prose docs,
+# session journals. They belong to the sessions that produced them. What
+# has to outlive a session goes into README.md, into the code itself, or
+# into a commit message.
 plans/
+docs/
 
 # Editors / OS
 .idea/

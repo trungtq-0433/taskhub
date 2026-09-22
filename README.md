@@ -44,10 +44,9 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
-The API serves `/docs`, `/redoc` and `/openapi.json`, plus CRUD endpoints for
-projects and tags under `/api/v1` — browse them live at `/docs`, or read the
-contract they all follow in
-[docs/api-conventions.md](docs/api-conventions.md).
+The API serves CRUD endpoints for projects and tags under `/api/v1`. Browse
+them at `/docs`, which also renders every error response each route can return.
+Those three doc routes are served everywhere except production.
 
 If port 5432 is already taken on your machine, create a
 `docker-compose.override.yml` — compose reads it automatically and git ignores
@@ -63,10 +62,14 @@ services:
 Then point `DATABASE_URL` in `.env` at the same host port. Only the host side
 moves; inside the compose network the database still listens on 5432.
 
-Settings, the required variables and what happens when one is missing:
-[docs/configuration.md](docs/configuration.md). Adding or changing a model,
-and the migration workflow that follows:
-[docs/database.md](docs/database.md).
+`ENVIRONMENT` and `DATABASE_URL` have no defaults — miss either and the
+process refuses to start, naming the variable, rather than running on a guess.
+`app/core/config.py` is the whole of the configuration.
+
+Adding a model: write it, **import it in `app/models/__init__.py`**, then
+`alembic revision --autogenerate`. Read the generated file before applying it —
+a model Alembic cannot see is one it believes you deleted, and it will write a
+migration that DROPs the table without erroring.
 
 ## Layout
 
@@ -107,10 +110,10 @@ GET /api/v1/projects/99  →  404   { "type": "urn:taskhub:problem:project-not-f
 `X-Request-ID` header, repeated in the problem body, which is what ties a user's
 screenshot to a log line.
 
-The full contract — the domain exception table, what each handler guarantees,
-and the reasoning behind the choices — is
-[docs/api-conventions.md](docs/api-conventions.md). Every phase after this one
-is expected to follow it.
+Domain exceptions live in `app/core/exceptions.py`, one class per kind, each
+carrying the status and the `type` suffix it answers with. The handlers that
+render them are in `app/core/handlers.py`; their docstrings say what each
+guarantees.
 
 ## Quality gate
 

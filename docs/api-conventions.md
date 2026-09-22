@@ -8,8 +8,9 @@ Every phase after the foundation is expected to follow this document.
 A route returns its model. The HTTP status carries the outcome.
 
 ```json
-GET /api/v1/tasks/1  →  200
-{ "id": 1, "title": "Ship v1", "status": "open" }
+GET /api/v1/projects/1  →  200
+{ "id": 1, "name": "Ship v1", "description": null, "status": "active",
+  "created_at": "2026-09-21T09:00:10Z", "updated_at": "2026-09-21T09:00:10Z" }
 ```
 
 This is what FastAPI is built around, and it keeps the generated OpenAPI schema —
@@ -20,11 +21,11 @@ Collections are the one place that needs somewhere to put counts, so they use
 `Page[T]` from `app/schemas/base.py`:
 
 ```json
-GET /api/v1/tasks  →  200
+GET /api/v1/projects  →  200
 { "items": [ ... ], "total": 57, "page": 1, "size": 20, "pages": 3 }
 ```
 
-Declare it as the return annotation — `async def list_tasks(...) -> Page[TaskRead]`
+Declare it as the return annotation — `async def list_projects(...) -> Page[ProjectRead]`
 — and FastAPI derives the response model from it. Nothing needs an explicit
 `response_model=` unless the declared return type differs from what should be
 serialized.
@@ -38,14 +39,14 @@ parse one concept. The handlers funnel all of them into one shape, served as
 `application/problem+json`:
 
 ```json
-POST /api/v1/tasks  →  422
+POST /api/v1/projects  →  422
 {
   "type": "urn:taskhub:problem:validation",
   "title": "Validation Failed",
   "status": 422,
   "detail": "The request payload did not match the expected schema.",
-  "instance": "/api/v1/tasks",
-  "errors": [{ "field": "title", "message": "String should have at least 1 character", "type": "string_too_short" }],
+  "instance": "/api/v1/projects",
+  "errors": [{ "field": "name", "message": "String should have at least 1 character", "type": "string_too_short" }],
   "request_id": "9f2c1e8a4b7d4c31a0e5f6d7c8b9a012"
 }
 ```
@@ -104,6 +105,8 @@ Registered in `register_exception_handlers()`, narrowest type first:
 - `IntegrityError` → 409, not a 500. A unique-constraint clash is the client's problem.
 - `SQLAlchemyError` → 500 `database-error`, cause logged, never returned.
 - `HTTPException` → converted to a problem document, which catches FastAPI's own 404/405.
+- `OSError` → 503 `service-unavailable` — an unreachable database, not a generic
+  500. See [Catching database failures](#catching-database-failures) below.
 - `Exception` → 500 `internal-error`. The cause reaches the log only, unless `DEBUG`.
 
 Two things worth knowing:
@@ -145,19 +148,19 @@ locking belongs.
 takes the session:
 
 ```python
-class TaskService:
+class ProjectService:
     def __init__(self, session: SessionDep) -> None:
         self._session = session
 
-TaskServiceDep = Annotated[TaskService, Depends()]
+ProjectServiceDep = Annotated[ProjectService, Depends()]
 ```
 
 `Depends()` with no argument tells FastAPI to build the class and resolve its
 `__init__` annotations, so the router never sees a session:
 
 ```python
-async def get_task(task_id: int, service: TaskServiceDep) -> TaskRead:
-    return await service.get(task_id)
+async def get_project(project_id: int, service: ProjectServiceDep) -> ProjectRead:
+    return ProjectRead.model_validate(await service.get(project_id))
 ```
 
 A router reaching for a session directly is how query logic starts leaking
@@ -165,18 +168,19 @@ upward, so the rule has no exceptions — not even a one-line `SELECT 1`.
 
 ### Catching database failures
 
-A constraint for the services that arrive with the entities; nothing catches
-these yet.
-
 `except SQLAlchemyError` does **not** cover an unreachable database. When the
 connection itself cannot be made, asyncpg raises the asyncio error unwrapped —
 `ConnectionRefusedError`, `socket.gaierror`, `TimeoutError` — and SQLAlchemy
-never sees it. So a service that needs to tell "the database is down" apart from
-"the query was wrong" catches `(SQLAlchemyError, OSError)`.
+never sees it.
 
-Left uncaught, those reach `unhandled_exception_handler` and answer **500**
-`internal-error`, when 503 is what a client and a load balancer both need to
-see.
+**Services do not catch it.** `connection_error_handler` maps `OSError` to
+**503** `service-unavailable` centrally, because the condition is identical
+behind every endpoint and per-service handling would be the same six lines
+repeated. Left to the catch-all it would answer 500, which tells a load balancer
+nothing and a client not to retry.
+
+A service catches `SQLAlchemyError` only when it has something specific to say
+about a *query* that failed — not to report the database being down.
 
 ## 7. Quality gate
 

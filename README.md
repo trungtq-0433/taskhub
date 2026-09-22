@@ -3,10 +3,9 @@
 A task and project management API built on FastAPI, SQLAlchemy 2.0 async and
 PostgreSQL, laid out in loosely coupled layers along DDD lines.
 
-> **Status: foundation only.** The response contract, database wiring and error
-> handling are in place and exercised by tests. Entities, repositories and
-> endpoints are the phases that follow — `app/models/`, `app/repositories/` and
-> `app/services/` are still empty.
+> **Status:** projects and tags are implemented end to end — models,
+> repositories, services and CRUD endpoints — on top of the response contract,
+> database wiring and error handling, all exercised by tests.
 
 ## Stack
 
@@ -15,7 +14,7 @@ PostgreSQL, laid out in loosely coupled layers along DDD lines.
 | Runtime | Python 3.12 (pinned — see below) |
 | Framework | FastAPI, Pydantic v2 |
 | Database | PostgreSQL 16 via SQLAlchemy 2.0 async + asyncpg |
-| Migrations | Alembic (async, wired up in phase 2) |
+| Migrations | Alembic (async) |
 | Tooling | uv, ruff, mypy (strict), pytest |
 
 The interpreter is pinned in `.python-version` to match the runtime image. uv
@@ -45,8 +44,10 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
-The API serves `/docs`, `/redoc` and `/openapi.json`. There are no resource
-endpoints yet — those arrive with the entities.
+The API serves `/docs`, `/redoc` and `/openapi.json`, plus CRUD endpoints for
+projects and tags under `/api/v1` — browse them live at `/docs`, or read the
+contract they all follow in
+[docs/api-conventions.md](docs/api-conventions.md).
 
 If port 5432 is already taken on your machine, create a
 `docker-compose.override.yml` — compose reads it automatically and git ignores
@@ -63,7 +64,9 @@ Then point `DATABASE_URL` in `.env` at the same host port. Only the host side
 moves; inside the compose network the database still listens on 5432.
 
 Settings, the required variables and what happens when one is missing:
-[docs/configuration.md](docs/configuration.md).
+[docs/configuration.md](docs/configuration.md). Adding or changing a model,
+and the migration workflow that follows:
+[docs/database.md](docs/database.md).
 
 ## Layout
 
@@ -89,13 +92,15 @@ Failures are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem
 documents, served as `application/problem+json`:
 
 ```json
-GET /api/v1/tasks/1   →  200   { "id": 1, "title": "Ship v1", "status": "open" }
+GET /api/v1/projects/1   →  200   { "id": 1, "name": "Ship v1", "description": null,
+                                    "status": "active", "created_at": "2026-09-21T09:00:10Z",
+                                    "updated_at": "2026-09-21T09:00:10Z" }
 
-GET /api/v1/tasks/99  →  404   { "type": "urn:taskhub:problem:task-not-found",
-                                 "title": "Not Found", "status": 404,
-                                 "detail": "Task 99 does not exist.",
-                                 "instance": "/api/v1/tasks/99",
-                                 "request_id": "9f2c1e8a…" }
+GET /api/v1/projects/99  →  404   { "type": "urn:taskhub:problem:project-not-found",
+                                    "title": "Not Found", "status": 404,
+                                    "detail": "Project 99 does not exist.",
+                                    "instance": "/api/v1/projects/99",
+                                    "request_id": "9f2c1e8a…" }
 ```
 
 `type` is the part clients branch on. Every response also carries an

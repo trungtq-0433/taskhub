@@ -24,6 +24,10 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Ruff formats Python inside Markdown fences. Documentation examples are
+# written to be read, not to satisfy a formatter — and some are deliberately
+# not valid Python (Mako templates, elided bodies).
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "ASYNC", "S", "C4", "SIM", "RUF"]
@@ -37,6 +41,10 @@ ignore = ["S101", "B008"]
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
+# The engine fixture is session-scoped; without a session-scoped loop the
+# connections it opens belong to a loop that is closed before the tests run.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 addopts = "-q"
 
 [tool.mypy]

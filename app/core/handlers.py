@@ -21,6 +21,7 @@ from app.core.exceptions import AppError
 from app.core.middleware import get_request_id
 from app.schemas.problem import (
     PROBLEM_MEDIA_TYPE,
+    PROBLEM_SCHEMA,
     InvalidField,
     ProblemDetail,
     problem_type_uri,
@@ -137,6 +138,26 @@ async def sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError) -> JS
     )
 
 
+async def connection_error_handler(request: Request, exc: OSError) -> JSONResponse:
+    """A backing service could not be reached.
+
+    asyncpg raises the asyncio error unwrapped — `ConnectionRefusedError`,
+    `socket.gaierror`, `TimeoutError` — so `SQLAlchemyError` never sees it and
+    the catch-all below would answer 500. It belongs here rather than in each
+    service: the condition is identical everywhere, and 503 is what tells a
+    load balancer to take the instance out of rotation and a client that
+    retrying is worth it.
+    """
+    logger.error("Dependency unreachable: %r", exc)
+    return _problem(
+        request,
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        "service-unavailable",
+        "Service Unavailable",
+        "A downstream dependency is unavailable.",
+    )
+
+
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Last line of defence — the cause goes to the log, never to the client."""
     logger.exception("Unhandled exception", exc_info=exc)
@@ -163,21 +184,26 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(IntegrityError, integrity_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(SQLAlchemyError, sqlalchemy_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(OSError, connection_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, unhandled_exception_handler)
 
 
 # OpenAPI: FastAPI advertises its own HTTPValidationError for 422 and says
 # nothing about the other failures. Declared app-wide so the schema documents
 # the problem document that is actually returned, with the right media type.
-_PROBLEM_CONTENT = {PROBLEM_MEDIA_TYPE: {"schema": ProblemDetail.model_json_schema()}}
+#
+# Routers reuse this for their per-route 404/409. Declaring {"model":
+# ProblemDetail} instead looks equivalent and is not: FastAPI then documents
+# application/json, while the handler answers application/problem+json.
+PROBLEM_CONTENT = {PROBLEM_MEDIA_TYPE: {"schema": PROBLEM_SCHEMA}}
 
 DEFAULT_ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
     HTTPStatus.UNPROCESSABLE_ENTITY: {
         "description": "Validation failed",
-        "content": _PROBLEM_CONTENT,
+        "content": PROBLEM_CONTENT,
     },
     HTTPStatus.INTERNAL_SERVER_ERROR: {
         "description": "Unexpected server error",
-        "content": _PROBLEM_CONTENT,
+        "content": PROBLEM_CONTENT,
     },
 }

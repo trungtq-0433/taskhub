@@ -28,14 +28,23 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def create_app() -> FastAPI:
+    # The interactive docs are unauthenticated: anyone who can reach the service
+    # can read every route, payload shape and error code, and fire requests from
+    # the page. That is exactly what you want while building and exactly what you
+    # do not want facing the internet, so production serves none of the three.
+    #
+    # openapi_url has to go too. Leaving it while hiding /docs only removes the
+    # UI — the schema it renders is still there for the asking.
+    in_production = settings.environment == "production"
+
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
         debug=settings.debug,
         lifespan=lifespan,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url=None if in_production else "/docs",
+        redoc_url=None if in_production else "/redoc",
+        openapi_url=None if in_production else "/openapi.json",
         responses=DEFAULT_ERROR_RESPONSES,
     )
 

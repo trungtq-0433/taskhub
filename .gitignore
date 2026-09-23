@@ -20,6 +20,13 @@ htmlcov/
 # Per-developer compose tweaks (host ports, extra services)
 docker-compose.override.yml
 
+# Working notes: blueprints, phase files, review evidence, prose docs,
+# session journals. They belong to the sessions that produced them. What
+# has to outlive a session goes into README.md, into the code itself, or
+# into a commit message.
+plans/
+docs/
+
 # Editors / OS
 .idea/
 .vscode/

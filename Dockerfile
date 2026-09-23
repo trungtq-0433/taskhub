@@ -25,9 +25,15 @@ RUN groupadd --system app && useradd --system --gid app --home /app app
 WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
+COPY --chown=app:app alembic.ini docker-entrypoint.sh ./
+COPY --chown=app:app migrations ./migrations
 COPY --chown=app:app app ./app
 
 USER app
 EXPOSE 8000
 
+# Migrations run at container start. Correct at one replica; with several
+# started together they race, and the fix then is a separate pre-deploy step
+# rather than this line.
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

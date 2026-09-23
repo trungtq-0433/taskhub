@@ -162,3 +162,21 @@ async def test_openapi_documents_the_problem_document() -> None:
     # would otherwise advertise its own HTTPValidationError here.
     assert PROBLEM_MEDIA_TYPE in sample["422"]["content"]
     assert sample["422"]["content"][PROBLEM_MEDIA_TYPE]["schema"]["title"] == "ProblemDetail"
+
+
+async def test_unreachable_dependency_answers_503(route_client: RouteClient) -> None:
+    """A database that cannot be reached is not a server fault — it is a 503.
+
+    asyncpg raises the asyncio error unwrapped, so `SQLAlchemyError` never sees
+    it. Without a handler for OSError this reaches the catch-all and answers
+    500, which tells a load balancer nothing and a client not to retry.
+    """
+
+    async def unreachable() -> None:
+        raise ConnectionRefusedError(111, "Connect call failed")
+
+    response = await route_client("/_test/unreachable", unreachable)
+
+    assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+    assert response.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
+    assert response.json()["type"] == "urn:taskhub:problem:service-unavailable"

@@ -3,10 +3,9 @@
 A task and project management API built on FastAPI, SQLAlchemy 2.0 async and
 PostgreSQL, laid out in loosely coupled layers along DDD lines.
 
-> **Status: foundation only.** The response contract, database wiring and error
-> handling are in place and exercised by tests. Entities, repositories and
-> endpoints are the phases that follow — `app/models/`, `app/repositories/` and
-> `app/services/` are still empty.
+> **Status:** projects and tags are implemented end to end — models,
+> repositories, services and CRUD endpoints — on top of the response contract,
+> database wiring and error handling, all exercised by tests.
 
 ## Stack
 
@@ -15,7 +14,7 @@ PostgreSQL, laid out in loosely coupled layers along DDD lines.
 | Runtime | Python 3.12 (pinned — see below) |
 | Framework | FastAPI, Pydantic v2 |
 | Database | PostgreSQL 16 via SQLAlchemy 2.0 async + asyncpg |
-| Migrations | Alembic (async, wired up in phase 2) |
+| Migrations | Alembic (async) |
 | Tooling | uv, ruff, mypy (strict), pytest |
 
 The interpreter is pinned in `.python-version` to match the runtime image. uv
@@ -45,8 +44,9 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
-The API serves `/docs`, `/redoc` and `/openapi.json`. There are no resource
-endpoints yet — those arrive with the entities.
+The API serves CRUD endpoints for projects and tags under `/api/v1`. Browse
+them at `/docs`, which also renders every error response each route can return.
+Those three doc routes are served everywhere except production.
 
 If port 5432 is already taken on your machine, create a
 `docker-compose.override.yml` — compose reads it automatically and git ignores
@@ -62,8 +62,14 @@ services:
 Then point `DATABASE_URL` in `.env` at the same host port. Only the host side
 moves; inside the compose network the database still listens on 5432.
 
-Settings, the required variables and what happens when one is missing:
-[docs/configuration.md](docs/configuration.md).
+`ENVIRONMENT` and `DATABASE_URL` have no defaults — miss either and the
+process refuses to start, naming the variable, rather than running on a guess.
+`app/core/config.py` is the whole of the configuration.
+
+Adding a model: write it, **import it in `app/models/__init__.py`**, then
+`alembic revision --autogenerate`. Read the generated file before applying it —
+a model Alembic cannot see is one it believes you deleted, and it will write a
+migration that DROPs the table without erroring.
 
 ## Layout
 
@@ -89,23 +95,25 @@ Failures are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem
 documents, served as `application/problem+json`:
 
 ```json
-GET /api/v1/tasks/1   →  200   { "id": 1, "title": "Ship v1", "status": "open" }
+GET /api/v1/projects/1   →  200   { "id": 1, "name": "Ship v1", "description": null,
+                                    "status": "active", "created_at": "2026-09-21T09:00:10Z",
+                                    "updated_at": "2026-09-21T09:00:10Z" }
 
-GET /api/v1/tasks/99  →  404   { "type": "urn:taskhub:problem:task-not-found",
-                                 "title": "Not Found", "status": 404,
-                                 "detail": "Task 99 does not exist.",
-                                 "instance": "/api/v1/tasks/99",
-                                 "request_id": "9f2c1e8a…" }
+GET /api/v1/projects/99  →  404   { "type": "urn:taskhub:problem:project-not-found",
+                                    "title": "Not Found", "status": 404,
+                                    "detail": "Project 99 does not exist.",
+                                    "instance": "/api/v1/projects/99",
+                                    "request_id": "9f2c1e8a…" }
 ```
 
 `type` is the part clients branch on. Every response also carries an
 `X-Request-ID` header, repeated in the problem body, which is what ties a user's
 screenshot to a log line.
 
-The full contract — the domain exception table, what each handler guarantees,
-and the reasoning behind the choices — is
-[docs/api-conventions.md](docs/api-conventions.md). Every phase after this one
-is expected to follow it.
+Domain exceptions live in `app/core/exceptions.py`, one class per kind, each
+carrying the status and the `type` suffix it answers with. The handlers that
+render them are in `app/core/handlers.py`; their docstrings say what each
+guarantees.
 
 ## Quality gate
 
@@ -119,3 +127,9 @@ uv run pytest          # tests
 mypy runs strict with the pydantic plugin, and it earns the cost: on its first
 run it found a branch in the `HTTPException` handler that was dead to the type
 checker but reachable at runtime. Lint did not see it and no test covered it.
+
+**`pytest` needs Postgres running** (`docker compose up -d db`). It creates a
+separate `taskhub_test` database on first run and applies the migrations to it —
+your development data is never touched, and `TEST_DATABASE_URL` overrides the
+target. Each test runs inside a transaction that is rolled back afterwards, so
+tests cannot see each other's writes even when they commit.

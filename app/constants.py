@@ -87,3 +87,7 @@ TASK_DESCRIPTION_MAX_LENGTH = 10_000
 
 USERNAME_MAX_LENGTH = 50
 FULL_NAME_MAX_LENGTH = 100
+
+# A client-supplied list becomes an `IN` clause, so it needs a ceiling. Twenty
+# tags on one task is already well past what anyone reads.
+TASK_MAX_TAGS = 20

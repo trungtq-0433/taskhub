@@ -26,7 +26,10 @@ async def test_round_trip(api_client: AsyncClient) -> None:
 
     fetched = await api_client.get(f"{BASE}/{created['id']}")
     assert fetched.status_code == HTTPStatus.OK
-    assert fetched.json() == created
+    # The detail route answers ProjectDetail while POST still answers
+    # ProjectRead, so the two are equal on every field the create returned
+    # plus the one the detail adds.
+    assert fetched.json() == created | {"total_tasks": 0}
 
     listed = (await api_client.get(BASE)).json()
     assert listed["total"] == 1

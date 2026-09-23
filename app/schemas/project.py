@@ -44,3 +44,14 @@ class ProjectRead(BaseSchema):
     status: ProjectStatus
     created_at: datetime
     updated_at: datetime
+
+
+class ProjectDetail(ProjectRead):
+    """One project, with the size of what hangs off it.
+
+    A count rather than the tasks themselves: the list stays `ProjectRead` and
+    a project holding five thousand tasks answers with one extra integer. The
+    tasks have their own paginated route.
+    """
+
+    total_tasks: int

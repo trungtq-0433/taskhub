@@ -14,7 +14,7 @@ router = APIRouter(prefix="/projects/{project_id}/tasks", tags=["tasks"])
 NOT_FOUND = not_found("project")
 
 
-@router.get("", summary="List a project's tasks")
+@router.get("", summary="List a project's tasks", responses=NOT_FOUND)
 async def list_tasks(
     project_id: int, service: TaskServiceDep, pagination: PaginationDep
 ) -> Page[TaskRead]:

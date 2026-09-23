@@ -18,11 +18,13 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.models import Project, Tag
+from app.models import Project, Tag, Task, User
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.schemas.tag import TagCreate
+from app.schemas.task import TaskCreate
 from app.services.project import ProjectService
 from app.services.tag import TagService
+from app.services.task import TaskService
 
 
 @pytest.fixture
@@ -34,8 +36,13 @@ async def committing_sessions(
     yield factory
 
     async with factory() as cleanup:
+        # Task first: its FK to project is ON DELETE RESTRICT, so emptying
+        # `project` while a task still points at one is refused outright.
+        # Association rows go with the task through the database's cascade.
+        await cleanup.execute(delete(Task))
         await cleanup.execute(delete(Project))
         await cleanup.execute(delete(Tag))
+        await cleanup.execute(delete(User))
         await cleanup.commit()
 
 
@@ -88,3 +95,25 @@ async def test_tag_create_survives_into_a_separate_session(
 
     async with committing_sessions() as reading:
         assert await reading.get(Tag, created.id) is not None
+
+
+async def test_task_create_survives_into_a_separate_session(
+    committing_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """Required by this repo's own postmortem, not by this plan.
+
+    `docs/journals/journal-260921-1645-project-tag-crud-defects.md` closes with
+    the rule that every new entity gaining CRUD endpoints needs a cross-session
+    durability test, because the ordinary harness cannot see a missing
+    `commit()` — a flushed row is visible to the session that wrote it. `Task`
+    is such an entity as of this branch.
+    """
+    async with committing_sessions() as writing:
+        project = await ProjectService(writing).create(ProjectCreate(name="Durable holder"))
+        created = await TaskService(writing).create(project.id, TaskCreate(title="Durable task"))
+
+    async with committing_sessions() as reading:
+        found = await reading.get(Task, created.id)
+
+    assert found is not None, "the task did not outlive the session that wrote it"
+    assert found.title == "Durable task"

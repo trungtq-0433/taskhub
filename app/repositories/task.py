@@ -14,9 +14,6 @@ class TaskRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get(self, task_id: int) -> Task | None:
-        return await self._session.get(Task, task_id)
-
     async def list_for_project(self, project_id: int, *, offset: int, limit: int) -> Sequence[Task]:
         """One page of a project's tasks, with tags and assignee already loaded.
 

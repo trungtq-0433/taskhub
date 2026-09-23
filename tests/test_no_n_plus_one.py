@@ -14,6 +14,16 @@ For the record, measured: lazy loading 20 tasks costs 1 + 20 + 20 = 41
 statements — the task SELECT, then one per task for its tags and one per task
 for its assignee. Eager loading costs 3 whatever the page holds.
 
+Two different defects trip this test, and they trip it differently. Removing an
+eager option makes it red by raising MissingGreenlet during serialisation —
+under AsyncSession a forgotten option is a 500, so the lazy path never survives
+long enough to be counted, and the equality assertion is not what catches it.
+What the equality assertion catches is the other shape: a query issued once per
+row somewhere above the repository, which raises nothing at all. Verified by
+introducing one — a loop calling a count per task — and reading the result:
+`4 statements for 1 task, 23 for 20`. The assertion is not decorative; it
+covers the half that fails quietly.
+
 This sits beside `test_schema_matches_columns.py` and `test_openapi_document.py`
 for the same reason they exist: the ordinary suite cannot see any of it. Strip
 the eager options and every other test stays green while the database quietly

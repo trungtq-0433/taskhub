@@ -47,7 +47,13 @@ class Task(Base, TimestampMixin):
     assignee: Mapped["User | None"] = relationship()
     # No `Tag.tasks` counterpart: nothing reads the reverse direction, and the
     # database-level cascade already handles what happens when a tag goes.
-    tags: Mapped[list["Tag"]] = relationship(secondary=task_tag)
+    # passive_deletes for the same reason Project.tasks carries it: without
+    # it, deleting a task makes the ORM load this collection to clear the
+    # association rows, and that implicit load raises MissingGreenlet under
+    # AsyncSession. The association's ON DELETE CASCADE already removes
+    # them. Dormant today — nothing deletes a task — and that is exactly
+    # when it is cheap to get right.
+    tags: Mapped[list["Tag"]] = relationship(secondary=task_tag, passive_deletes=True)
 
     def __repr__(self) -> str:
         return f"Task(id={self.id!r}, title={self.title!r})"

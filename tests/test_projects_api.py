@@ -3,8 +3,10 @@
 from http import HTTPStatus
 
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
+from app.models import Project, Task
 from app.schemas.problem import PROBLEM_MEDIA_TYPE
 
 BASE = "/api/v1/projects"
@@ -175,3 +177,43 @@ async def test_patch_refuses_an_empty_name(api_client: AsyncClient) -> None:
 
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
     assert response.json()["errors"][0]["field"] == "name"
+
+
+async def test_delete_is_refused_while_the_project_still_has_tasks(
+    db_session: AsyncSession, api_client: AsyncClient
+) -> None:
+    """The RESTRICT is conditional, not permanent — clear the tasks and it goes.
+
+    Behaviour change: this endpoint used to answer 204 unconditionally.
+    """
+    project = Project(name="Occupied")
+    db_session.add(project)
+    await db_session.flush()
+    db_session.add(task := Task(title="In the way", project_id=project.id))
+    await db_session.flush()
+
+    refused = await api_client.delete(f"{BASE}/{project.id}")
+
+    assert refused.status_code == HTTPStatus.CONFLICT
+    assert refused.headers["content-type"] == "application/problem+json"
+    # Its own slug, so a client can tell this apart from a duplicate name —
+    # every IntegrityError otherwise renders as the same generic conflict.
+    assert refused.json()["type"].endswith("project-has-tasks")
+    assert "1 task" in refused.json()["detail"]
+
+    await db_session.delete(task)
+    await db_session.flush()
+
+    assert (await api_client.delete(f"{BASE}/{project.id}")).status_code == HTTPStatus.NO_CONTENT
+
+
+async def test_detail_reports_how_many_tasks_hang_off_the_project(
+    db_session: AsyncSession, api_client: AsyncClient
+) -> None:
+    project = Project(name="Counted")
+    db_session.add(project)
+    await db_session.flush()
+    db_session.add_all([Task(title=f"T{i}", project_id=project.id) for i in range(3)])
+    await db_session.flush()
+
+    assert (await api_client.get(f"{BASE}/{project.id}")).json()["total_tasks"] == 3

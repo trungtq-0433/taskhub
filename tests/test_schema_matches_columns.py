@@ -17,9 +17,10 @@ from annotated_types import MaxLen, MinLen
 from pydantic import BaseModel
 from sqlalchemy import String
 
-from app.models import Project, Tag
+from app.models import Project, Tag, Task
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.schemas.tag import TagCreate, TagUpdate
+from app.schemas.task import TaskCreate
 
 # (schema, field, model, column) — every string field that maps to a column
 # with a width. `description` is omitted on purpose: its column is TEXT, so
@@ -31,7 +32,13 @@ MAPPINGS = [
     (TagUpdate, "name", Tag, "name"),
     (TagCreate, "color", Tag, "color"),
     (TagUpdate, "color", Tag, "color"),
+    (TaskCreate, "title", Task, "title"),
 ]
+
+# Deliberately absent: `User.username` and `User.full_name`. This maps a *write*
+# schema onto a column, and no schema writes a user — the API has no endpoint
+# that creates one. Those two columns have nothing guarding their width, and no
+# path that could overflow them either. Add the rows the day one appears.
 
 
 def _schema_max_length(schema: type[BaseModel], field: str) -> int | None:

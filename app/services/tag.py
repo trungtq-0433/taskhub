@@ -59,4 +59,15 @@ class TagService:
             )
 
 
-TagServiceDep = Annotated[TagService, Depends()]
+async def get_tag_service(session: SessionDep) -> TagService:
+    """Build the service on the event loop.
+
+    Using the class itself as the dependency works, but FastAPI classifies a
+    class as a synchronous callable and runs it in the thread pool — a hop, and
+    one of AnyIO's shared thread tokens, on every request, to assign two
+    attributes. An async factory stays on the loop.
+    """
+    return TagService(session)
+
+
+TagServiceDep = Annotated[TagService, Depends(get_tag_service)]

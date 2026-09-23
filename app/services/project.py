@@ -71,4 +71,15 @@ class ProjectService:
             )
 
 
-ProjectServiceDep = Annotated[ProjectService, Depends()]
+async def get_project_service(session: SessionDep) -> ProjectService:
+    """Build the service on the event loop.
+
+    Using the class itself as the dependency works, but FastAPI classifies a
+    class as a synchronous callable and runs it in the thread pool — a hop, and
+    one of AnyIO's shared thread tokens, on every request, to assign two
+    attributes. An async factory stays on the loop.
+    """
+    return ProjectService(session)
+
+
+ProjectServiceDep = Annotated[ProjectService, Depends(get_project_service)]

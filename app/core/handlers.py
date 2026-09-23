@@ -190,15 +190,19 @@ def register_exception_handlers(app: FastAPI) -> None:
 # OpenAPI: FastAPI advertises its own HTTPValidationError for 422 and says
 # nothing about the other failures. Declared app-wide so the schema documents
 # the problem document that is actually returned, with the right media type.
-_PROBLEM_CONTENT = {PROBLEM_MEDIA_TYPE: {"schema": ProblemDetail.model_json_schema()}}
+#
+# Routers reuse this for their per-route 404/409. Declaring {"model":
+# ProblemDetail} instead looks equivalent and is not: FastAPI then documents
+# application/json, while the handler answers application/problem+json.
+PROBLEM_CONTENT = {PROBLEM_MEDIA_TYPE: {"schema": ProblemDetail.model_json_schema()}}
 
 DEFAULT_ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
     HTTPStatus.UNPROCESSABLE_ENTITY: {
         "description": "Validation failed",
-        "content": _PROBLEM_CONTENT,
+        "content": PROBLEM_CONTENT,
     },
     HTTPStatus.INTERNAL_SERVER_ERROR: {
         "description": "Unexpected server error",
-        "content": _PROBLEM_CONTENT,
+        "content": PROBLEM_CONTENT,
     },
 }

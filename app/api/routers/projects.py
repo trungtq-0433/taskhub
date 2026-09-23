@@ -4,8 +4,8 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, status
 
+from app.core.handlers import PROBLEM_CONTENT
 from app.schemas.base import Page
-from app.schemas.problem import ProblemDetail
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
 from app.services.project import ProjectServiceDep
 
@@ -15,8 +15,8 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 # per-route, or the schema understates what a client has to handle.
 ErrorResponses = dict[int | str, dict[str, Any]]
 
-NOT_FOUND: ErrorResponses = {404: {"model": ProblemDetail, "description": "No such project"}}
-CONFLICT: ErrorResponses = {409: {"model": ProblemDetail, "description": "Name already taken"}}
+NOT_FOUND: ErrorResponses = {404: {"content": PROBLEM_CONTENT, "description": "No such project"}}
+CONFLICT: ErrorResponses = {409: {"content": PROBLEM_CONTENT, "description": "Name already taken"}}
 
 # Bounded, like `size`. Without a ceiling the offset overflows Postgres's
 # bigint and the request dies as a 500 instead of being refused as a 422.

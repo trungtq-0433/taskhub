@@ -115,3 +115,50 @@ async def test_page_is_bounded_like_size(api_client: AsyncClient) -> None:
 
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
     assert response.json()["errors"][0]["field"] == "page"
+
+
+async def test_explicit_null_on_a_required_field_is_a_validation_error(
+    api_client: AsyncClient,
+) -> None:
+    """`{"name": null}` is the client sending something wrong, not a conflict.
+
+    Omitting a field means "leave it alone"; sending null means "set it to
+    null", which a NOT NULL column refuses. Answering 409 tells the client
+    someone else changed the row and retrying might help — it will not.
+    """
+    created = (await api_client.post(BASE, json={"name": "Keep"})).json()
+
+    response = await api_client.patch(f"{BASE}/{created['id']}", json={"name": None})
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    problem = response.json()
+    assert problem["type"] == "urn:taskhub:problem:validation"
+    assert problem["errors"][0]["field"] == "name"
+
+
+async def test_explicit_null_on_a_nullable_field_still_clears_it(
+    api_client: AsyncClient,
+) -> None:
+    """The mirror case: description IS nullable, so null must keep working."""
+    created = (
+        await api_client.post(BASE, json={"name": "Clearable", "description": "gone soon"})
+    ).json()
+
+    response = await api_client.patch(f"{BASE}/{created['id']}", json={"description": None})
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json()["description"] is None
+
+
+async def test_openapi_declares_the_problem_media_type_for_every_error(
+    api_client: AsyncClient,
+) -> None:
+    """A schema that says application/json for 404 misdescribes every failure."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        schema = (await client.get("/openapi.json")).json()
+
+    detail = schema["paths"]["/api/v1/projects/{project_id}"]["get"]["responses"]
+    create = schema["paths"]["/api/v1/projects"]["post"]["responses"]
+
+    assert list(detail["404"]["content"]) == [PROBLEM_MEDIA_TYPE]
+    assert list(create["409"]["content"]) == [PROBLEM_MEDIA_TYPE]

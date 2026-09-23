@@ -21,6 +21,7 @@ from app.core.exceptions import AppError
 from app.core.middleware import get_request_id
 from app.schemas.problem import (
     PROBLEM_MEDIA_TYPE,
+    PROBLEM_SCHEMA,
     InvalidField,
     ProblemDetail,
     problem_type_uri,
@@ -194,7 +195,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 # Routers reuse this for their per-route 404/409. Declaring {"model":
 # ProblemDetail} instead looks equivalent and is not: FastAPI then documents
 # application/json, while the handler answers application/problem+json.
-PROBLEM_CONTENT = {PROBLEM_MEDIA_TYPE: {"schema": ProblemDetail.model_json_schema()}}
+PROBLEM_CONTENT = {PROBLEM_MEDIA_TYPE: {"schema": PROBLEM_SCHEMA}}
 
 DEFAULT_ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
     HTTPStatus.UNPROCESSABLE_ENTITY: {

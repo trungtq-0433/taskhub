@@ -5,6 +5,8 @@ registered members are `type`, `title`, `status`, `detail` and `instance`; the
 spec permits extension members, which is where `errors` and `request_id` live.
 """
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 PROBLEM_MEDIA_TYPE = "application/problem+json"
@@ -52,3 +54,42 @@ class ProblemDetail(BaseModel):
     request_id: str | None = Field(
         default=None, description="Correlation id, echoed in the X-Request-ID header"
     )
+
+
+def _inline_defs(schema: dict[str, Any]) -> dict[str, Any]:
+    """Substitute a model's local `$defs` into the schema body.
+
+    `model_json_schema()` hoists a nested model into a `$defs` section and
+    points at it with `$ref: "#/$defs/InvalidField"`. The leading `#` means the
+    root of the *document*, which is this schema only while it stands alone.
+    Embedded in openapi.json it becomes the root of that file, where no `$defs`
+    exists, and Swagger UI reports "Could not resolve reference".
+
+    FastAPI's own models escape this because it registers them under
+    `components/schemas` and rewrites the refs to match. A schema handed to
+    `responses` as a plain dict gets neither, so the definition is substituted
+    here instead and the result stands on its own.
+
+    Substituting rather than rewriting would not terminate on a self-referencing
+    model. None of the problem models refer to themselves, and one that did
+    could not be inlined at all.
+    """
+    defs = schema.pop("$defs", {})
+
+    def resolve(node: Any) -> Any:
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                return resolve(defs[ref.removeprefix("#/$defs/")])
+            return {key: resolve(value) for key, value in node.items()}
+        if isinstance(node, list):
+            return [resolve(item) for item in node]
+        return node
+
+    # Mapped over the members rather than passed whole: the top-level schema of
+    # a model is an object, never a bare `$ref`, and this keeps the return typed.
+    return {key: resolve(value) for key, value in schema.items()}
+
+
+PROBLEM_SCHEMA = _inline_defs(ProblemDetail.model_json_schema())
+"""The problem document as OpenAPI, self-contained — see `_inline_defs`."""

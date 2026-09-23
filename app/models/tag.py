@@ -3,6 +3,7 @@
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.constants import TAG_COLOR_LENGTH, TAG_NAME_MAX_LENGTH
 from app.core.database import Base
 from app.models.mixins import TimestampMixin
 
@@ -18,8 +19,8 @@ class Tag(Base, TimestampMixin):
     __tablename__ = "tag"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(50), unique=True, index=True)
-    color: Mapped[str | None] = mapped_column(String(7), default=None)
+    name: Mapped[str] = mapped_column(String(TAG_NAME_MAX_LENGTH), unique=True, index=True)
+    color: Mapped[str | None] = mapped_column(String(TAG_COLOR_LENGTH), default=None)
 
     def __repr__(self) -> str:
         return f"Tag(id={self.id!r}, name={self.name!r})"

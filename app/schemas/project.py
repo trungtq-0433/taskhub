@@ -1,19 +1,23 @@
 """Project DTOs — what crosses the wire, in three genuinely different shapes."""
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import Field
 
+from app.constants import (
+    NAME_MIN_LENGTH,
+    PROJECT_DESCRIPTION_MAX_LENGTH,
+    PROJECT_NAME_MAX_LENGTH,
+    ProjectStatus,
+)
 from app.schemas.base import BaseSchema, NotNull
-
-ProjectStatus = Literal["active", "archived"]
 
 
 class ProjectCreate(BaseSchema):
-    name: str = Field(min_length=1, max_length=200)
-    description: str | None = Field(default=None, max_length=10_000)
-    status: ProjectStatus = "active"
+    name: str = Field(min_length=NAME_MIN_LENGTH, max_length=PROJECT_NAME_MAX_LENGTH)
+    description: str | None = Field(default=None, max_length=PROJECT_DESCRIPTION_MAX_LENGTH)
+    status: ProjectStatus = ProjectStatus.ACTIVE
 
 
 class ProjectUpdate(BaseSchema):
@@ -26,8 +30,10 @@ class ProjectUpdate(BaseSchema):
 
     # name and status map to NOT NULL columns, so null is refused there.
     # description is nullable, so clearing it with null is legitimate.
-    name: Annotated[str | None, NotNull] = Field(default=None, min_length=1, max_length=200)
-    description: str | None = Field(default=None, max_length=10_000)
+    name: Annotated[str | None, NotNull] = Field(
+        default=None, min_length=NAME_MIN_LENGTH, max_length=PROJECT_NAME_MAX_LENGTH
+    )
+    description: str | None = Field(default=None, max_length=PROJECT_DESCRIPTION_MAX_LENGTH)
     status: Annotated[ProjectStatus | None, NotNull] = None
 
 

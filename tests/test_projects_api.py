@@ -162,3 +162,13 @@ async def test_openapi_declares_the_problem_media_type_for_every_error(
 
     assert list(detail["404"]["content"]) == [PROBLEM_MEDIA_TYPE]
     assert list(create["409"]["content"]) == [PROBLEM_MEDIA_TYPE]
+
+
+async def test_patch_refuses_an_empty_name(api_client: AsyncClient) -> None:
+    """NOT NULL lets `''` through, so validation is the only thing stopping it."""
+    created = (await api_client.post(BASE, json={"name": "Named"})).json()
+
+    response = await api_client.patch(f"{BASE}/{created['id']}", json={"name": ""})
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert response.json()["errors"][0]["field"] == "name"

@@ -54,9 +54,16 @@ class TaskRepository:
         """One GROUP BY, not one COUNT per status.
 
         Every status the enum knows is present in the result, including the
-        ones with no rows, so the caller never branches on a missing key. The
-        merge starts from the enum, so a stale value left in the table shows up
-        rather than crashing.
+        ones with no rows, so the caller never branches on a missing key.
+
+        A value the enum no longer knows comes back too, and this dict is the
+        last place it survives: `TaskCounts` drops it, because `BaseSchema`
+        sets `extra="ignore"`, and the tasks holding it then vanish from the
+        profile with no error and no `total` to check the sum against.
+        `UserService.get_profile` logs when that happens — without the log it
+        is silent. The column is VARCHAR precisely so the status set can change
+        without a migration, which makes a stale value an expected state rather
+        than a curiosity.
         """
         rows = await self._session.execute(
             select(Task.status, func.count())

@@ -1,5 +1,6 @@
 """Business rules for reading a user. Nothing here writes one."""
 
+import logging
 from typing import Annotated
 
 from fastapi import Depends
@@ -9,6 +10,8 @@ from app.core.exceptions import NotFoundError
 from app.repositories.task import TaskRepository
 from app.repositories.user import UserRepository
 from app.schemas.user import TaskCounts, UserProfile, UserRead
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_username(value: str) -> str:
@@ -43,11 +46,44 @@ class UserService:
             raise NotFoundError(f"No user named {username!r}.", problem_type="user-not-found")
 
         counts = await self._tasks.count_by_status_for_assignee(user.id)
+        self._warn_about_statuses_the_response_cannot_carry(user.username, counts)
+
         return UserProfile(
             user=UserRead.model_validate(user),
             project_count=await self._users.count_projects(user.id),
             task_counts=TaskCounts.model_validate(counts),
         )
+
+    @staticmethod
+    def _warn_about_statuses_the_response_cannot_carry(
+        username: str, counts: dict[str, int]
+    ) -> None:
+        """Say something when the DTO is about to swallow a count.
+
+        `TaskCounts` carries one field per member of `TaskStatus` and inherits
+        `extra="ignore"`, so a status the enum no longer knows is dropped on
+        the way out — the tasks are still assigned, they just stop being
+        counted, and the response has no `total` a client could notice the gap
+        with. That is an expected state rather than a corrupt one: the column
+        is VARCHAR so the status set can change without a migration, which
+        leaves old rows holding a value nothing recognises.
+
+        Logged rather than raised. One stale row should not take the endpoint
+        down, and the count is the thing that is wrong, not the request.
+        """
+        lost = {
+            status: count
+            for status, count in counts.items()
+            if status not in TaskCounts.model_fields
+        }
+        if lost:
+            logger.warning(
+                "Profile for %r drops %d task(s) whose status the response cannot carry: %s. "
+                "Every status outside TaskStatus is invisible to the client.",
+                username,
+                sum(lost.values()),
+                sorted(lost),
+            )
 
 
 async def get_user_service(session: SessionDep) -> UserService:

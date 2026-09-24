@@ -10,9 +10,19 @@ to make it green again is to raise it, which retires the test without anyone
 deciding to. An equality only breaks when cost actually starts tracking row
 count, which is the defect itself.
 
-For the record, measured: lazy loading 20 tasks costs 1 + 20 + 20 = 41
-statements — the task SELECT, then one per task for its tags and one per task
-for its assignee. Eager loading costs 3 whatever the page holds.
+For the record, measured: eager loading costs 4 statements whatever the page
+holds — the project existence check, the task SELECT with the assignee joined
+in, the `selectin` SELECT for tags, and the COUNT. Lazy loading 20 tasks would
+cost 1 + 20 + 20 = 41: the task SELECT, then one per task for its tags and one
+per task for its assignee.
+
+This test sees 3 of those 4, and the gap is worth knowing about. `api_client`
+hands the request the same session the seeding used, so the project is already
+in the identity map and `ProjectService.get` answers without touching the
+database at all. A production request gets a fresh session and pays for that
+lookup. The invariant is untouched either way — 4 equals 4 as surely as 3
+equals 3 — but a number read out of this file is the harness's, not the
+endpoint's.
 
 Two different defects trip this test, and they trip it differently. Removing an
 eager option makes it red by raising MissingGreenlet during serialisation —

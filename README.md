@@ -3,9 +3,11 @@
 A task and project management API built on FastAPI, SQLAlchemy 2.0 async and
 PostgreSQL, laid out in loosely coupled layers along DDD lines.
 
-> **Status:** projects and tags are implemented end to end — models,
-> repositories, services and CRUD endpoints — on top of the response contract,
-> database wiring and error handling, all exercised by tests.
+> **Status:** projects and tags are full CRUD. Tasks are list and create only,
+> nested under a project — no update or delete endpoint yet. Users are
+> read-only: a profile endpoint, and nothing that creates one. All of it sits
+> on the same response contract, database wiring and error handling, and all
+> of it is exercised by tests.
 
 ## Stack
 
@@ -44,7 +46,8 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
-The API serves CRUD endpoints for projects and tags under `/api/v1`. Browse
+The API serves projects and tags (full CRUD), tasks nested under a project
+(list and create), and a read-only user profile, all under `/api/v1`. Browse
 them at `/docs`, which also renders every error response each route can return.
 Those three doc routes are served everywhere except production.
 
@@ -66,10 +69,12 @@ moves; inside the compose network the database still listens on 5432.
 process refuses to start, naming the variable, rather than running on a guess.
 `app/core/config.py` is the whole of the configuration.
 
-Adding a model: write it, **import it in `app/models/__init__.py`**, then
-`alembic revision --autogenerate`. Read the generated file before applying it —
-a model Alembic cannot see is one it believes you deleted, and it will write a
-migration that DROPs the table without erroring.
+Adding a model — or a Core `Table` with no declarative class, such as an
+association table — follows the same rule: write it, **import it in
+`app/models/__init__.py`**, then `alembic revision --autogenerate`. Read the
+generated file before applying it — anything Alembic cannot see it believes
+you deleted, and it will write a migration that DROPs the table without
+erroring.
 
 ## Layout
 
@@ -97,7 +102,7 @@ documents, served as `application/problem+json`:
 ```json
 GET /api/v1/projects/1   →  200   { "id": 1, "name": "Ship v1", "description": null,
                                     "status": "active", "created_at": "2026-09-21T09:00:10Z",
-                                    "updated_at": "2026-09-21T09:00:10Z" }
+                                    "updated_at": "2026-09-21T09:00:10Z", "total_tasks": 3 }
 
 GET /api/v1/projects/99  →  404   { "type": "urn:taskhub:problem:project-not-found",
                                     "title": "Not Found", "status": 404,

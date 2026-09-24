@@ -28,8 +28,8 @@ class UserRepository:
         comparison instead of `lower(username) = :name`, which would need a
         matching functional index to avoid a sequential scan.
         """
-        found = await self._session.scalars(select(User).where(User.username == username))
-        return found.first()
+        result = await self._session.scalars(select(User).where(User.username == username))
+        return result.one_or_none()
 
     async def count_projects(self, user_id: int) -> int:
         """Projects this user owns.

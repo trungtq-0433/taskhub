@@ -48,7 +48,8 @@ from httpx import AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.models import Project, Tag, Task, User
+from app.models import Project, Tag, Task
+from tests.factories import make_user
 
 
 @contextmanager
@@ -81,7 +82,7 @@ def count_selects(engine: AsyncEngine) -> Iterator[list[str]]:
 async def _project_with_tasks(session: AsyncSession, name: str, count: int) -> Project:
     """One project, `count` tasks, every task assigned and wearing both tags."""
     project = Project(name=name)
-    user = User(username=f"owner-{name.lower()}")
+    user = make_user(f"owner-{name.lower()}")
     tags = [Tag(name=f"{name}-a"), Tag(name=f"{name}-b")]
     session.add_all([project, user, *tags])
     await session.flush()

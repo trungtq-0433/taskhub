@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.constants import TaskStatus
 from app.models import Project, Task, User
 from app.schemas.task import TaskCounts
+from tests.factories import make_user
 
 
 def profile_url(username: str) -> str:
@@ -23,7 +24,7 @@ def profile_url(username: str) -> str:
 
 
 async def _seed_user_with_work(session: AsyncSession) -> User:
-    user = User(username="trung", full_name="Tran Quang Trung")
+    user = make_user("trung", full_name="Tran Quang Trung")
     owned = Project(name="Owned")
     session.add_all([user, owned, Project(name="Someone else's")])
     await session.flush()
@@ -57,7 +58,7 @@ async def test_every_status_is_present_even_with_no_rows(
     db_session: AsyncSession, api_client: AsyncClient
 ) -> None:
     """One GROUP BY, then the enum fills the gaps — the client never branches."""
-    user = User(username="idle")
+    user = make_user("idle")
     db_session.add(user)
     await db_session.flush()
 
@@ -71,7 +72,7 @@ async def test_the_lookup_ignores_the_case_of_the_url(
     db_session: AsyncSession, api_client: AsyncClient
 ) -> None:
     """Stored lowercase, looked up lowercase — so `/Trung/` finds `trung`."""
-    db_session.add(User(username="trung"))
+    db_session.add(make_user("trung"))
     await db_session.flush()
 
     response = await api_client.get(profile_url("TRUNG"))
@@ -99,7 +100,7 @@ async def test_a_status_the_enum_lost_is_dropped_from_the_counts_but_logged(
     a client cannot tell. The log is the only trace, which is why it is pinned
     here rather than left to be noticed in production.
     """
-    user = User(username="stale")
+    user = make_user("stale")
     project = Project(name="Holds a retired status")
     db_session.add_all([user, project])
     await db_session.flush()

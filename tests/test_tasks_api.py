@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import TaskStatus
 from app.models import Project, Tag, Task, User
+from tests.factories import make_user
 
 
 def tasks_url(project_id: int) -> str:
@@ -15,7 +16,7 @@ def tasks_url(project_id: int) -> str:
 
 async def _seed(session: AsyncSession) -> tuple[Project, User, list[Tag]]:
     project = Project(name="Holder")
-    user = User(username="worker", full_name="A Worker")
+    user = make_user("worker", full_name="A Worker")
     tags = [Tag(name="urgent"), Tag(name="backend")]
     session.add_all([project, user, *tags])
     await session.flush()

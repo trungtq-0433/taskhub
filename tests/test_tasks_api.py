@@ -72,6 +72,27 @@ async def test_list_paginates_and_counts_every_match(
     assert len(page["items"]) == 2
 
 
+async def test_a_project_with_no_tasks_lists_as_an_empty_page_not_a_404(
+    db_session: AsyncSession, api_client: AsyncClient
+) -> None:
+    """The other half of the 404 below: an empty collection is not a missing one.
+
+    The 404 on this route is about the project in the path. A project that
+    exists and holds nothing answers 200 with an empty page, so a client can
+    tell "no tasks yet" from "no such project".
+    """
+    project = Project(name="Empty for now")
+    db_session.add(project)
+    await db_session.flush()
+
+    response = await api_client.get(tasks_url(project.id))
+
+    assert response.status_code == HTTPStatus.OK
+    body = response.json()
+    assert body["items"] == []
+    assert body["total"] == 0
+
+
 async def test_list_and_create_404_for_a_project_that_does_not_exist(
     api_client: AsyncClient,
 ) -> None:

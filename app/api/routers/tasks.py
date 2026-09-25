@@ -11,10 +11,13 @@ from app.services.task import TaskServiceDep
 # and a router file that carries two of them stops being routing-only.
 router = APIRouter(prefix="/projects/{project_id}/tasks", tags=["tasks"])
 
-NOT_FOUND = not_found("project")
+# The project named in the path, not the tasks: a project that exists but
+# holds none answers 200 with an empty page. Only a project that does not
+# exist answers 404 — an empty list there would claim it exists.
+PROJECT_NOT_FOUND = not_found("project")
 
 
-@router.get("", summary="List a project's tasks", responses=NOT_FOUND)
+@router.get("", summary="List a project's tasks", responses=PROJECT_NOT_FOUND)
 async def list_tasks(
     project_id: int, service: TaskServiceDep, pagination: PaginationDep
 ) -> Page[TaskRead]:
@@ -39,7 +42,7 @@ async def list_tasks(
     summary="Create a task in a project",
     status_code=status.HTTP_201_CREATED,
     response_description="The task as stored, with its tags and assignee",
-    responses=NOT_FOUND,
+    responses=PROJECT_NOT_FOUND,
 )
 async def create_task(project_id: int, payload: TaskCreate, service: TaskServiceDep) -> TaskRead:
     """`assignee_id` and `tag_ids` must name rows that exist.

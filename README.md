@@ -115,7 +115,9 @@ GET /api/v1/projects/99  →  404   { "type": "urn:taskhub:problem:project-not-f
 
 `type` is the part clients branch on. Every response also carries an
 `X-Request-ID` header, repeated in the problem body, which is what ties a user's
-screenshot to a log line.
+screenshot to a log line. A problem document also forwards whatever response
+headers the failure itself carries — `WWW-Authenticate` on a 401,
+`Allow` on a 405 — rather than dropping them when the body is replaced.
 
 Domain exceptions live in `app/core/exceptions.py`, one class per kind, each
 carrying the status and the `type` suffix it answers with. The handlers that

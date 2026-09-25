@@ -1,4 +1,4 @@
-"""User DTOs — credentials in, profile out.
+"""User DTOs — credentials in, the user out. The profile lives in `app.schemas.profile`.
 
 `UserRegister` and `UserUpdate` are the only two shapes in this module that
 accept identity data from a client; everything else here only ever describes

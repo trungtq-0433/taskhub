@@ -4,10 +4,11 @@ A task and project management API built on FastAPI, SQLAlchemy 2.0 async and
 PostgreSQL, laid out in loosely coupled layers along DDD lines.
 
 > **Status:** projects and tags are full CRUD. Tasks are list and create only,
-> nested under a project — no update or delete endpoint yet. Users are
-> read-only: a profile endpoint, and nothing that creates one. All of it sits
-> on the same response contract, database wiring and error handling, and all
-> of it is exercised by tests.
+> nested under a project — no update or delete endpoint yet. Users register,
+> log in with a JWT, and can read or update their own profile; a public,
+> read-only profile lookup stays open to anyone. All of it sits on the same
+> response contract, database wiring and error handling, and all of it is
+> exercised by tests.
 
 ## Stack
 
@@ -47,9 +48,10 @@ uv run uvicorn app.main:app --reload
 ```
 
 The API serves projects and tags (full CRUD), tasks nested under a project
-(list and create), and a read-only user profile, all under `/api/v1`. Browse
-them at `/docs`, which also renders every error response each route can return.
-Those three doc routes are served everywhere except production.
+(list and create), user registration/login/profile management, and a public
+read-only profile lookup, all under `/api/v1`. Browse them at `/docs`, which
+also renders every error response each route can return. Those three doc
+routes are served everywhere except production.
 
 If port 5432 is already taken on your machine, create a
 `docker-compose.override.yml` — compose reads it automatically and git ignores
@@ -119,6 +121,53 @@ Domain exceptions live in `app/core/exceptions.py`, one class per kind, each
 carrying the status and the `type` suffix it answers with. The handlers that
 render them are in `app/core/handlers.py`; their docstrings say what each
 guarantees.
+
+## Authentication
+
+JWT bearer tokens, issued by the API itself — no third-party identity provider.
+
+| Method | Path | |
+|---|---|---|
+| `POST` | `/api/v1/users/register` | Create a user: `{username, password, full_name?}` → `201` with the new `UserRead`. |
+| `POST` | `/api/v1/users/login` | Exchange a username and password, **form-encoded**, for an access token. |
+| `GET` | `/api/v1/users/me` | The authenticated user, as `UserRead`. Requires `Authorization: Bearer <token>`. |
+| `PUT` | `/api/v1/users/me` | Replace `full_name` (`null` clears it, the key is required). Username is immutable. Requires the same header. |
+
+```bash
+curl -s -X POST localhost:8000/api/v1/users/register \
+  -H 'Content-Type: application/json' \
+  -d '{"username": "trung", "password": "correct-horse-battery"}'
+
+TOKEN=$(curl -s -X POST localhost:8000/api/v1/users/login \
+  -d 'username=trung&password=correct-horse-battery' | jq -r .access_token)
+
+curl -s localhost:8000/api/v1/users/me -H "Authorization: Bearer $TOKEN"
+```
+
+`JWT_SECRET_KEY` is required, like `DATABASE_URL` — the process refuses to
+start without it. Generate one with:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+`user.hashed_password` is `NOT NULL` with no default, so on a database that
+already holds users created by hand before this endpoint existed, the
+migration that added the column fails with Postgres's own "column contains
+null values" error — there is no plaintext left to hash for a row it never
+saw. Clear those rows first, then register through the API instead:
+
+```sql
+DELETE FROM "user";
+```
+
+`task.assignee_id` and `project.owner_id` are both `ON DELETE SET NULL`, so
+existing tasks and projects survive that delete untouched.
+
+There is no rate limiting or lockout on `/users/login`: brute-forcing a
+password and running up bcrypt's CPU cost with repeated failed attempts are
+both unmitigated in the app. Put a proxy or gateway that rate-limits that path
+in front before exposing it publicly.
 
 ## Quality gate
 

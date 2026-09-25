@@ -1,6 +1,6 @@
 """Password hashing and access tokens.
 
-Four pure functions, nothing more: no database lookup, no HTTP, no request
+Four functions, nothing more: no database lookup, no HTTP, no request
 object. `app.api.auth` composes these with a repository to build
 `get_current_user`; keeping them separate is what makes each side testable
 without the other.
@@ -69,11 +69,14 @@ def decode_access_token(token: str) -> int | None:
     """Recover the user id a token claims, or `None` if it should be refused.
 
     `algorithms=[JWT_ALGORITHM]` pinned explicitly is what refuses an
-    `{"alg": "none"}` token — PyJWT would otherwise accept whatever algorithm
-    the token itself names. Every other failure (bad signature, expired,
-    missing claim, malformed) is `jwt.InvalidTokenError` or a subclass, and
-    every one of them means the same thing to the caller: no id. The caller
-    still has to look the id up — a token can outlive the user it names.
+    `{"alg": "none"}` token or one signed with any algorithm but this one —
+    PyJWT 2 already requires `algorithms` and refuses to decode without it,
+    and pinning it to a single value is what keeps a token that names a
+    different algorithm from being accepted at all. Every other failure (bad
+    signature, expired, missing claim, malformed) is `jwt.InvalidTokenError`
+    or a subclass, and every one of them means the same thing to the caller:
+    no id. The caller still has to look the id up — a token can outlive the
+    user it names.
     """
     try:
         payload = jwt.decode(

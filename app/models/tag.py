@@ -9,11 +9,20 @@ from app.models.mixins import TimestampMixin
 
 
 class Tag(Base, TimestampMixin):
-    """A standalone label.
+    """A label a task can wear.
 
-    No relationship to `Project` on purpose: tags conventionally hang off
-    `Task`, which does not exist yet, and a join table built on a guess is
-    harder to remove than to add.
+    Declares no relationship of its own. The many-to-many edge lives on
+    `Task.tags`, through the `task_tag` association table, and there is no
+    `Tag.tasks` counterpart on purpose: nothing reads the reverse direction,
+    so it would be an unused attribute — and one that raises MissingGreenlet
+    the first time something touches it outside an eager load.
+
+    Deleting a tag therefore unlinks rather than being refused: the
+    association rows carry `ON DELETE CASCADE`, so the database removes them
+    and `DELETE /tags/{tag_id}` keeps answering 204.
+
+    Still no relationship to `Project`. Tags hang off tasks, and a task
+    belongs to a project, so the path already exists without a second one.
     """
 
     __tablename__ = "tag"

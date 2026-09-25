@@ -2,14 +2,18 @@
 
 from fastapi import APIRouter, status
 
-from app.api.params import CONFLICT, PaginationDep, not_found
+from app.api.params import CONFLICT, ErrorResponses, PaginationDep, not_found
+from app.core.handlers import PROBLEM_CONTENT
 from app.schemas.base import Page
-from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
+from app.schemas.project import ProjectCreate, ProjectDetail, ProjectRead, ProjectUpdate
 from app.services.project import ProjectServiceDep
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 NOT_FOUND = not_found("project")
+HAS_TASKS: ErrorResponses = {
+    409: {"content": PROBLEM_CONTENT, "description": "The project still has tasks"}
+}
 
 
 @router.get("", summary="List projects")
@@ -25,8 +29,15 @@ async def list_projects(service: ProjectServiceDep, pagination: PaginationDep) -
 
 
 @router.get("/{project_id}", summary="Fetch one project", responses=NOT_FOUND)
-async def get_project(project_id: int, service: ProjectServiceDep) -> ProjectRead:
-    return ProjectRead.model_validate(await service.get(project_id))
+async def get_project(project_id: int, service: ProjectServiceDep) -> ProjectDetail:
+    """Richer than the list: the same fields plus how many tasks hang off it."""
+    project, total_tasks = await service.get_detail(project_id)
+    # Built from ProjectRead rather than validated straight off the ORM object:
+    # total_tasks is not a column, so model_validate would reject the instance
+    # for a missing field.
+    return ProjectDetail(
+        **ProjectRead.model_validate(project).model_dump(), total_tasks=total_tasks
+    )
 
 
 @router.post(
@@ -64,8 +75,12 @@ async def update_project(
     summary="Delete a project",
     status_code=status.HTTP_204_NO_CONTENT,
     response_description="Deleted; no body",
-    responses=NOT_FOUND,
+    responses={**NOT_FOUND, **HAS_TASKS},
 )
 async def delete_project(project_id: int, service: ProjectServiceDep) -> None:
-    """Permanent — there is no soft delete and no undo."""
+    """Permanent — there is no soft delete and no undo.
+
+    Refused with 409 while the project still holds tasks. Delete those first,
+    or move them; nothing here cascades.
+    """
     await service.delete(project_id)

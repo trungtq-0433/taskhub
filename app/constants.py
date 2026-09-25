@@ -60,3 +60,34 @@ TAG_COLOR_LENGTH = 7
 # API-side only: the column is TEXT and has no limit of its own. A ceiling
 # exists so one request cannot post a novel, not because storage requires it.
 PROJECT_DESCRIPTION_MAX_LENGTH = 10_000
+
+
+class TaskStatus(StrEnum):
+    """Allowed values for `task.status`.
+
+    VARCHAR for the same reason as `ProjectStatus`: a Postgres `ENUM` cannot
+    drop a value and Alembic does not diff its members, so changing the set
+    would autogenerate an empty migration. The database does not enforce this
+    set; only the API layer does.
+    """
+
+    TODO = "todo"
+    DOING = "doing"
+    DONE = "done"
+
+
+TASK_TITLE_MAX_LENGTH = 200
+
+# Wider than the longest value TaskStatus holds today ("doing", 5), for the
+# same reason PROJECT_STATUS_MAX_LENGTH is wider than "archived".
+TASK_STATUS_MAX_LENGTH = 20
+
+# API-side only, like the project's — the column is TEXT.
+TASK_DESCRIPTION_MAX_LENGTH = 10_000
+
+USERNAME_MAX_LENGTH = 50
+FULL_NAME_MAX_LENGTH = 100
+
+# A client-supplied list becomes an `IN` clause, so it needs a ceiling. Twenty
+# tags on one task is already well past what anyone reads.
+TASK_MAX_TAGS = 20

@@ -23,6 +23,19 @@ class TagRepository:
         total = await self._session.scalar(select(func.count()).select_from(Tag))
         return total or 0
 
+    # `Sequence[int]`, not `list[int]`: inside this class body the name `list`
+    # resolves to the method above, and mypy rejects a method used as a type.
+    async def list_by_ids(self, tag_ids: Sequence[int]) -> Sequence[Tag]:
+        """The tags named by a client, in one statement rather than a loop.
+
+        Returning fewer rows than ids given is not an error here: it is the
+        input the service turns into a 422 naming the ids that do not exist.
+        An empty input returns early rather than emitting `IN ()`.
+        """
+        if not tag_ids:
+            return []
+        return (await self._session.scalars(select(Tag).where(Tag.id.in_(tag_ids)))).all()
+
     async def add(self, tag: Tag) -> Tag:
         """Flush, never commit — see `ProjectRepository.add`."""
         self._session.add(tag)

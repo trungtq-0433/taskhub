@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.params import not_found
-from app.schemas.user import UserProfile
+from app.schemas.profile import UserProfile
 from app.services.user import UserServiceDep
 
 router = APIRouter(prefix="/users", tags=["users"])

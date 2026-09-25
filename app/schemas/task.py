@@ -49,3 +49,21 @@ class TaskRead(BaseSchema):
     tags: list[TagRead]
     created_at: datetime
     updated_at: datetime
+
+
+# Here rather than with the user schemas because its fields are the task
+# status set: one per member of `TaskStatus`, so adding a status means changing
+# this class too — `test_task_counts_has_one_field_per_task_status` fails if
+# that is forgotten. A comment rather than part of the docstring on purpose:
+# Pydantic publishes the docstring as this schema's description in OpenAPI,
+# and file layout is nothing a client needs to read.
+class TaskCounts(BaseSchema):
+    """Tasks assigned to a user, split by status.
+
+    No `total` field. It is the sum of the three, and a stored sum is a second
+    truth that can disagree with the first.
+    """
+
+    todo: int
+    doing: int
+    done: int

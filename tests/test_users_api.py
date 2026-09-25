@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import TaskStatus
 from app.models import Project, Task, User
+from app.schemas.task import TaskCounts
 
 
 def profile_url(username: str) -> str:
@@ -123,3 +124,14 @@ async def test_a_status_the_enum_lost_is_dropped_from_the_counts_but_logged(
     )
     assert "cancelled" in caplog.text
     assert "drops 1 task" in caplog.text
+
+
+def test_task_counts_has_one_field_per_task_status() -> None:
+    """The other way a count goes missing, caught before it ships.
+
+    Adding a status is meant to be a Python change rather than a migration, and
+    this is the Python change it has to include. Without it the new status is
+    counted by the repository, dropped by `TaskCounts`, and the only trace is
+    the warning the test above pins — in production, after the fact.
+    """
+    assert set(TaskCounts.model_fields) == {status.value for status in TaskStatus}

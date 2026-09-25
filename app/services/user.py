@@ -9,7 +9,9 @@ from app.core.database import SessionDep
 from app.core.exceptions import NotFoundError
 from app.repositories.task import TaskRepository
 from app.repositories.user import UserRepository
-from app.schemas.user import TaskCounts, UserProfile, UserRead
+from app.schemas.profile import UserProfile
+from app.schemas.task import TaskCounts
+from app.schemas.user import UserRead
 
 logger = logging.getLogger(__name__)
 

@@ -25,27 +25,3 @@ class UserSummary(BaseSchema):
 class UserRead(UserSummary):
     created_at: datetime
     updated_at: datetime
-
-
-class TaskCounts(BaseSchema):
-    """Tasks assigned to a user, split by status.
-
-    No `total` field. It is the sum of the three, and a stored sum is a second
-    truth that can disagree with the first.
-    """
-
-    todo: int
-    doing: int
-    done: int
-
-
-class UserProfile(BaseSchema):
-    """Counts, not collections.
-
-    Nothing here is a list, so the payload has a fixed size and needs no
-    ceiling — which is the whole reason it was shaped this way.
-    """
-
-    user: UserRead
-    project_count: int
-    task_counts: TaskCounts

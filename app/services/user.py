@@ -1,4 +1,9 @@
-"""Business rules for reading a user. Nothing here writes one."""
+"""Business rules for reading, and for editing, a user.
+
+Registration and login are `AuthService`'s job (`app.services.auth`) — this
+class covers everything a user does once already authenticated: reading a
+profile, and `update_me`.
+"""
 
 import logging
 from typing import Annotated
@@ -7,33 +12,28 @@ from fastapi import Depends
 
 from app.core.database import SessionDep
 from app.core.exceptions import NotFoundError
+from app.models import User
 from app.repositories.task import TaskRepository
 from app.repositories.user import UserRepository
 from app.schemas.profile import UserProfile
 from app.schemas.task import TaskCounts
-from app.schemas.user import UserRead
+from app.schemas.user import UserRead, UserUpdate, normalize_username
 
 logger = logging.getLogger(__name__)
 
 
-def normalize_username(value: str) -> str:
-    """The one canonical form of a username: lowercase.
-
-    A named helper with a single caller today, on purpose. Usernames are stored
-    lowercase so the lookup can be a plain equality against the indexed column
-    rather than `lower(username) = :name`, which no ordinary index serves. That
-    rule has two sides — the write that stores it and the read that looks it up
-    — and the write side does not exist yet because nothing in the API creates
-    a user. Inlining `.lower()` into the lookup would leave the rule stated
-    nowhere, and the day a write path appears it would be restated by hand.
-    """
-    return value.strip().lower()
-
-
 class UserService:
     def __init__(self, session: SessionDep) -> None:
+        self._session = session
         self._users = UserRepository(session)
         self._tasks = TaskRepository(session)
+
+    async def update_me(self, user: User, data: UserUpdate) -> User:
+        """Set `full_name` and commit. See `UserUpdate` — `full_name` only."""
+        user.full_name = data.full_name
+        await self._session.commit()
+        await self._session.refresh(user)
+        return user
 
     async def get_profile(self, username: str) -> UserProfile:
         """Counts, gathered in two queries.

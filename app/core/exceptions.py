@@ -23,6 +23,7 @@ class AppError(Exception):
     problem_type: str = "internal-error"
     title: str = "Internal Server Error"
     detail: str = "An unexpected error occurred."
+    headers: dict[str, str] | None = None
 
     def __init__(
         self,
@@ -31,11 +32,13 @@ class AppError(Exception):
         problem_type: str | None = None,
         title: str | None = None,
         errors: list[InvalidField] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.detail = detail or self.detail
         self.problem_type = problem_type or self.problem_type
         self.title = title or self.title
         self.errors = errors or []
+        self.headers = headers
         super().__init__(self.detail)
 
 
@@ -74,10 +77,36 @@ class InvalidStateError(AppError):
 
 
 class UnauthorizedError(AppError):
+    """Missing, invalid, or expired credentials.
+
+    RFC 6750 requires `WWW-Authenticate` on a 401 for bearer-token auth;
+    without it a client has no signal for what kind of credential to retry
+    with. Defaulted here so every raise site gets it for free — a fresh dict
+    literal per instance (never a shared class-level mutable default), so a
+    caller who overrides `headers` never touches what another instance sees.
+    """
+
     status_code = HTTPStatus.UNAUTHORIZED
     problem_type = "unauthorized"
     title = "Unauthorized"
     detail = "Authentication is required."
+
+    def __init__(
+        self,
+        detail: str | None = None,
+        *,
+        problem_type: str | None = None,
+        title: str | None = None,
+        errors: list[InvalidField] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(
+            detail,
+            problem_type=problem_type,
+            title=title,
+            errors=errors,
+            headers=headers if headers is not None else {"WWW-Authenticate": "Bearer"},
+        )
 
 
 class ForbiddenError(AppError):

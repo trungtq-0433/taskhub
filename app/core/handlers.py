@@ -7,6 +7,7 @@ documented shape, served as `application/problem+json`.
 """
 
 import logging
+from collections.abc import Mapping
 from http import HTTPStatus
 
 from fastapi import FastAPI, Request
@@ -45,11 +46,15 @@ def _problem(
     title: str,
     detail: str | None = None,
     errors: list[InvalidField] | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     """Render a problem document.
 
     `jsonable_encoder` rather than `model_dump()`: an `errors` entry may carry a
     UUID, `datetime` or `Decimal`, and `JSONResponse` cannot serialize those.
+    `headers` carries response headers the raiser needs on the wire — e.g. the
+    `Allow` FastAPI attaches to a 405, or `WWW-Authenticate` on a 401 — which
+    otherwise have nowhere to go once the exception is replaced by this body.
     """
     problem = ProblemDetail(
         type=problem_type_uri(slug),
@@ -64,6 +69,7 @@ def _problem(
         status_code=status_code,
         content=jsonable_encoder(problem, exclude_none=True),
         media_type=PROBLEM_MEDIA_TYPE,
+        headers=headers,
     )
 
 
@@ -71,7 +77,9 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     """Domain errors raised by the service layer — expected, so logged quietly."""
     if exc.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
         logger.error("%s: %s", exc.problem_type, exc.detail)
-    return _problem(request, exc.status_code, exc.problem_type, exc.title, exc.detail, exc.errors)
+    return _problem(
+        request, exc.status_code, exc.problem_type, exc.title, exc.detail, exc.errors, exc.headers
+    )
 
 
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
@@ -90,7 +98,17 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     if text == status.phrase:
         text = None
 
-    return _problem(request, exc.status_code, _problem_slug(exc.status_code), status.phrase, text)
+    # `HTTPException.headers` may be None — Starlette's own 405 sets `Allow`
+    # here, and `OAuth2PasswordBearer` sets `WWW-Authenticate`; both were
+    # silently dropped before this handler forwarded them.
+    return _problem(
+        request,
+        exc.status_code,
+        _problem_slug(exc.status_code),
+        status.phrase,
+        text,
+        headers=exc.headers,
+    )
 
 
 async def validation_exception_handler(

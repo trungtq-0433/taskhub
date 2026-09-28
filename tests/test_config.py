@@ -16,6 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 COMPLETE = {
     "environment": "local",
     "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/taskhub",
+    "JWT_SECRET_KEY": "a" * 32,
 }
 
 
@@ -31,7 +32,7 @@ def test_app_version_matches_pyproject() -> None:
     assert settings.app_version == pyproject["project"]["version"]
 
 
-@pytest.mark.parametrize("missing", ["environment", "DATABASE_URL"])
+@pytest.mark.parametrize("missing", ["environment", "DATABASE_URL", "JWT_SECRET_KEY"])
 def test_required_variable_missing_fails_the_boot(missing: str) -> None:
     """Omitting a required variable must fail loudly, naming the variable."""
     values = {key: value for key, value in COMPLETE.items() if key != missing}
@@ -72,6 +73,21 @@ def test_a_driver_we_cannot_run_is_refused_at_boot() -> None:
 def test_an_unparseable_url_is_refused_at_boot() -> None:
     with pytest.raises(ValidationError, match="not a valid database URL"):
         _settings(DATABASE_URL="this is not a url")
+
+
+def test_jwt_secret_key_below_minimum_length_is_rejected() -> None:
+    """32 bytes is the floor for an HS256 signing key; anything shorter is refused."""
+    with pytest.raises(ValidationError, match=r"(?i)jwt_secret_key"):
+        _settings(JWT_SECRET_KEY="a" * 31)
+
+
+def test_access_token_expiry_defaults_to_thirty_minutes() -> None:
+    assert _settings().access_token_expire_minutes == 30
+
+
+def test_access_token_expiry_must_be_at_least_one_minute() -> None:
+    with pytest.raises(ValidationError, match="greater than or equal to 1"):
+        _settings(ACCESS_TOKEN_EXPIRE_MINUTES=0)
 
 
 def test_password_special_characters_survive_normalisation() -> None:

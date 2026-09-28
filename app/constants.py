@@ -88,6 +88,17 @@ TASK_DESCRIPTION_MAX_LENGTH = 10_000
 USERNAME_MAX_LENGTH = 50
 FULL_NAME_MAX_LENGTH = 100
 
+# bcrypt's own ceiling: bytes 73+ of the input are silently ignored by the
+# reference algorithm, and this library raises `ValueError` instead of quietly
+# truncating. It is a byte count, not a character count — the schema that
+# enforces it must encode to UTF-8 before measuring.
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_BYTES = 72
+
+# bcrypt's encoded output (`$2b$<cost>$<22-char salt><31-char hash>`) is always
+# exactly 60 characters, regardless of cost factor or input length.
+HASHED_PASSWORD_LENGTH = 60
+
 # A client-supplied list becomes an `IN` clause, so it needs a ceiling. Twenty
 # tags on one task is already well past what anyone reads.
 TASK_MAX_TAGS = 20

@@ -9,6 +9,7 @@ from app.repositories.project import ProjectRepository
 from app.repositories.tag import TagRepository
 from app.repositories.task import TaskRepository
 from app.repositories.user import UserRepository
+from tests.factories import make_user
 
 
 async def _seed(session: AsyncSession, count: int) -> list[Project]:
@@ -100,7 +101,7 @@ async def test_tag_repository_covers_the_same_ground(db_session: AsyncSession) -
 async def _seed_task_graph(session: AsyncSession) -> tuple[Project, User, list[Tag]]:
     """One project, one user, two tags, and a task wearing all of them."""
     project = Project(name="Graph")
-    user = User(username="assignee", full_name="The Assignee")
+    user = make_user("assignee", full_name="The Assignee")
     tags = [Tag(name="alpha"), Tag(name="beta")]
     session.add_all([project, user, *tags])
     await session.flush()
@@ -159,7 +160,7 @@ async def test_count_by_status_returns_every_status_including_the_empty_ones(
 
 async def test_count_projects_ignores_projects_with_no_owner(db_session: AsyncSession) -> None:
     """An ownerless project counts toward nobody — that is the correct reading."""
-    user = User(username="owner")
+    user = make_user("owner")
     db_session.add(user)
     await db_session.flush()
     db_session.add_all([Project(name="Owned", owner_id=user.id), Project(name="Orphan")])
@@ -169,7 +170,7 @@ async def test_count_projects_ignores_projects_with_no_owner(db_session: AsyncSe
 
 
 async def test_get_by_username_finds_the_row(db_session: AsyncSession) -> None:
-    db_session.add(User(username="trung"))
+    db_session.add(make_user("trung"))
     await db_session.flush()
     repo = UserRepository(db_session)
 

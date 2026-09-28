@@ -7,12 +7,12 @@ from app.models import Project, User
 
 
 class UserRepository:
-    """Read-side only.
+    """Queries against `user`, plus the one write: `add`.
 
-    There is no `add` and no `username_exists`: nothing in the application
-    writes a user row — the API has no endpoint that creates one — and a
-    repository method with no caller is dead weight. Test fixtures build users
-    with `session.add(User(...))` directly.
+    There is no `update`: a `User` already loaded by `get`/`get_by_username`
+    is updated by assigning to its attributes and letting the service commit
+    — see `UserService.update_me`. A method that would do nothing but
+    `session.add` a row already in the session is dead weight.
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -30,6 +30,19 @@ class UserRepository:
         """
         result = await self._session.scalars(select(User).where(User.username == username))
         return result.one_or_none()
+
+    async def add(self, user: User) -> User:
+        """Flush and refresh so the caller reads back the id and timestamps.
+
+        `TimestampMixin`'s `eager_defaults` already returns them via
+        `RETURNING` on the flush; the explicit refresh matches how the rest of
+        this application's writes behave and costs one extra round trip only
+        on the one path (`AuthService.register`) that calls this.
+        """
+        self._session.add(user)
+        await self._session.flush()
+        await self._session.refresh(user)
+        return user
 
     async def count_projects(self, user_id: int) -> int:
         """Projects this user owns.

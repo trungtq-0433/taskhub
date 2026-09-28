@@ -59,6 +59,17 @@ class Settings(BaseSettings):
     db_pool_pre_ping: bool = True
     db_pool_recycle: int = 1800
 
+    # --- Auth --------------------------------------------------------------
+    # Required, like DATABASE_URL: a guessed or default signing key is a
+    # forgeable token waiting to happen. Generate one with:
+    #   python -c "import secrets; print(secrets.token_urlsafe(48))"
+    # 32 bytes is the floor for an HS256 key; token_urlsafe(48) clears it with
+    # room to spare. The algorithm itself is not a setting — see
+    # `app.core.security.JWT_ALGORITHM` — making it configurable only invites
+    # a `none`/RS256 downgrade mix-up.
+    jwt_secret_key: str = Field(alias="JWT_SECRET_KEY", min_length=32)
+    access_token_expire_minutes: int = Field(default=30, ge=1)
+
     @field_validator("database_url", mode="after")
     @classmethod
     def _require_async_driver(cls, value: str) -> str:

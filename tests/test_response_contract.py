@@ -12,7 +12,7 @@ from fastapi import HTTPException, Query
 from httpx import ASGITransport, AsyncClient
 
 from app.core.config import settings
-from app.core.exceptions import ConflictError
+from app.core.exceptions import ConflictError, UnauthorizedError
 from app.main import app, create_app
 from app.schemas.base import BaseSchema, Page
 from app.schemas.problem import PROBLEM_MEDIA_TYPE
@@ -89,6 +89,34 @@ async def test_validation_failure_lists_offending_fields(route_client: RouteClie
     assert problem["type"] == "urn:taskhub:problem:validation"
     assert problem["errors"][0]["field"] == "amount"
     assert problem["errors"][0]["type"]
+
+
+async def test_method_not_allowed_carries_the_allow_header(client: AsyncClient) -> None:
+    """Starlette attaches `Allow` to its 405; the handler must not drop it."""
+    path = "/_test/post-only"
+
+    async def post_only() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.router.add_api_route(path, post_only, methods=["POST"])
+    app.openapi_schema = None
+
+    response = await client.get(path)
+
+    assert response.status_code == HTTPStatus.METHOD_NOT_ALLOWED
+    assert "POST" in response.headers["allow"]
+
+
+async def test_unauthorized_error_carries_www_authenticate(route_client: RouteClient) -> None:
+    async def raise_unauthorized() -> None:
+        raise UnauthorizedError()
+
+    response = await route_client("/_test/unauthorized", raise_unauthorized)
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert response.headers["www-authenticate"] == "Bearer"
+    problem = response.json()
+    assert problem["type"] == "urn:taskhub:problem:unauthorized"
 
 
 async def test_raw_http_exception_becomes_a_problem(route_client: RouteClient) -> None:

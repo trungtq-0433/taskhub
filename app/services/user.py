@@ -38,10 +38,8 @@ class UserService:
     async def get_profile(self, username: str) -> UserProfile:
         """Counts, gathered in two queries.
 
-        On a fresh database this answers 404 for every username: no endpoint
-        creates a user, so rows arrive only from a fixture or by hand. That is
-        the accepted consequence of keeping this API to three endpoints, not a
-        defect to be worked around here.
+        A username nobody has registered through `POST /users/register`
+        answers 404.
         """
         user = await self._users.get_by_username(normalize_username(username))
         if user is None:

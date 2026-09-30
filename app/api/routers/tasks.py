@@ -8,13 +8,12 @@ beside it under the same `tags=["tasks"]`.
 from http import HTTPStatus
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from fastapi_filter import FilterDepends
 from fastapi_pagination import Page as LibraryPage
-from fastapi_pagination import Params
 
 from app.api.auth import ActiveUserDep
-from app.api.params import ErrorResponses, not_found
+from app.api.params import BoundedParams, ErrorResponses, not_found
 from app.api.routers.users import UNAUTHORIZED
 from app.core.handlers import PROBLEM_CONTENT
 from app.schemas.task import BookmarkRead, TaskCreate, TaskFilter, TaskRead
@@ -35,24 +34,12 @@ INACTIVE_USER: ErrorResponses = {
 }
 
 
-class BoundedParams(Params):
-    """fastapi-pagination's `Params` with the one bound it leaves out.
-
-    Upstream `page` has no ceiling, so `offset = size * (page - 1)` can pass
-    Postgres's bigint and a public request dies as a 500 `database-error`
-    rather than being refused as a 422. 100,000 is the ceiling `/projects` and
-    `/tags` already carry, for the same reason (`Pagination` in
-    app/api/params.py). `size` keeps the library's own default and bounds.
-    """
-
-    page: int = Query(1, ge=1, le=100_000, description="Page number")
-
-
 # The handler docstrings below are published as each operation's description in
 # /docs, so they say only what a client needs. For maintainers: `params` and
 # `task_filter` are fastapi-pagination's and fastapi-filter's own dependencies,
-# not this app's in-house `PaginationDep`/`Page[T]` — `size` defaults and
-# bounds itself (50, 1-100), and `page` is capped by `BoundedParams` above. The
+# not this app's in-house `PaginationDep`/`Page[T]`; `params` is
+# `BoundedParams` from app/api/params.py, which holds `page` and `size` to the
+# same bounds as every other list route (default `size` 50 here). The
 # per-field "case-insensitive" note has to live in the `GET /tasks`
 # docstring: `FilterDepends` hands FastAPI a model class, whose signature
 # carries no field descriptions into OpenAPI (fastapi-pagination's own `Params`

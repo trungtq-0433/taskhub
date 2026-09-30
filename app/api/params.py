@@ -9,11 +9,17 @@ here, they change in one place.
 from typing import Annotated, Any
 
 from fastapi import Query
+from fastapi_pagination import Params
 from pydantic import BaseModel, Field
 
 from app.core.handlers import PROBLEM_CONTENT
 
 ErrorResponses = dict[int | str, dict[str, Any]]
+
+# The bounds every list route shares, whichever pagination model it uses. Only
+# the default `size` differs between the two models below, and on purpose.
+MAX_PAGE = 100_000
+MAX_SIZE = 100
 
 
 class Pagination(BaseModel):
@@ -31,13 +37,30 @@ class Pagination(BaseModel):
     refused as a 422.
     """
 
-    page: int = Field(default=1, ge=1, le=100_000, description="Page number, 1-based")
-    size: int = Field(default=20, ge=1, le=100, description="Items per page")
+    page: int = Field(default=1, ge=1, le=MAX_PAGE, description="Page number, 1-based")
+    size: int = Field(default=20, ge=1, le=MAX_SIZE, description="Items per page")
 
 
 PaginationDep = Annotated[Pagination, Query()]
 """The model read from the query string. Each field stays its own parameter in
 the generated schema, so `?page=2&size=50` is unchanged on the wire."""
+
+
+class BoundedParams(Params):
+    """fastapi-pagination's `Params` for the two task lists, held to the same
+    bounds as `Pagination`.
+
+    Upstream `page` has no ceiling, so `offset = size * (page - 1)` can pass
+    Postgres's bigint and a public request dies as a 500 `database-error`
+    rather than being refused as a 422 — the failure `Pagination` above exists
+    to prevent. `size` is re-declared rather than inherited so both bounds are
+    visible here, not only in the library's source; it keeps the library's
+    default of 50 and its description.
+    """
+
+    page: int = Query(1, ge=1, le=MAX_PAGE, description="Page number")
+    size: int = Query(50, ge=1, le=MAX_SIZE, description="Page size")
+
 
 CONFLICT: ErrorResponses = {409: {"content": PROBLEM_CONTENT, "description": "Name already taken"}}
 

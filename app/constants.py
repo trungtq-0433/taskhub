@@ -82,6 +82,25 @@ TASK_TITLE_MAX_LENGTH = 200
 # same reason PROJECT_STATUS_MAX_LENGTH is wider than "archived".
 TASK_STATUS_MAX_LENGTH = 20
 
+
+class TaskPriority(StrEnum):
+    """Allowed values for `task.priority`.
+
+    VARCHAR for the same reason as `TaskStatus`: a Postgres `ENUM` cannot drop
+    a value and Alembic does not diff its members, so changing the set would
+    autogenerate an empty migration. The database does not enforce this set;
+    only the API layer does.
+    """
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+# Wider than the longest value TaskPriority holds today ("medium", 6), for the
+# same reason TASK_STATUS_MAX_LENGTH is wider than "doing".
+TASK_PRIORITY_MAX_LENGTH = 20
+
 # API-side only, like the project's — the column is TEXT.
 TASK_DESCRIPTION_MAX_LENGTH = 10_000
 

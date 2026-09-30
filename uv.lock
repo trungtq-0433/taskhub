@@ -265,6 +265,33 @@ wheels = [
 ]
 
 [[package]]
+name = "fastapi-filter"
+version = "3.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d5/e9/cd52fa0d71adb81ac69b3ffce1c5155e6afd8434e1f021666c8edabf16cc/fastapi_filter-3.0.0.tar.gz", hash = "sha256:afdea1347c9bb61d7c1102d5ee1f5308810bfa7e08aa8d7f3cc3f3d258e24507", size = 9803, upload-time = "2026-06-03T15:51:47.77Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e3/e2/710f4e50ce083d53ae840078d750f062e158a78c97d1e380915e2860d35e/fastapi_filter-3.0.0-py3-none-any.whl", hash = "sha256:0b4f39ba94b51134d441cdac61d1d7f6a86e51cb662c4aa47854b5db7bfdd5c5", size = 11125, upload-time = "2026-06-03T15:51:46.973Z" },
+]
+
+[[package]]
+name = "fastapi-pagination"
+version = "0.16.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "pydantic" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8c/1c/c51ad0415be51a16b9d364d9c4b30fe108727082fa0764127bab29974772/fastapi_pagination-0.16.0.tar.gz", hash = "sha256:315824873062e1a1784877bca5f274089a4dbb29f342aeff822ca1f50bc9946a", size = 615193, upload-time = "2026-09-16T19:40:40.15Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/65/96/db309f7cea7ffb66fd8d8430fc6ae35b07f216270a2b5844b9f23d8a2eec/fastapi_pagination-0.16.0-py3-none-any.whl", hash = "sha256:7f68942d3240f6813c679559fb87beb84d345cad2840b46b95cd3dbc62f6cd99", size = 51975, upload-time = "2026-09-16T19:40:38.769Z" },
+]
+
+[[package]]
 name = "greenlet"
 version = "3.5.6"
 source = { registry = "https://pypi.org/simple" }
@@ -996,6 +1023,8 @@ dependencies = [
     { name = "asyncpg" },
     { name = "bcrypt" },
     { name = "fastapi" },
+    { name = "fastapi-filter" },
+    { name = "fastapi-pagination" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
@@ -1019,6 +1048,8 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "bcrypt", specifier = ">=5.0.0" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "fastapi-filter", specifier = ">=3.0.0" },
+    { name = "fastapi-pagination", specifier = ">=0.16.0" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "pyjwt", specifier = ">=2.15.0" },

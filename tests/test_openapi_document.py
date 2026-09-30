@@ -52,3 +52,14 @@ def test_every_reference_in_the_document_resolves() -> None:
 
     dangling = [(path, ref) for path, ref in refs if _resolve(document, ref) is None]
     assert not dangling, "\n".join(f"{ref} referenced at {path}" for path, ref in dangling)
+
+
+# Not a `$ref` check, but the same kind of failure: invisible to every API test.
+# `GET /tasks`'s filters are declared through `FilterDepends`, which hands
+# FastAPI a model class — its field descriptions never reach the parameters in
+# OpenAPI, so the operation description is the only place a client reads that
+# the filters ignore case. The nested route takes no filters, so it carries no
+# such note.
+def test_task_list_operation_says_its_filters_are_case_insensitive() -> None:
+    paths = app.openapi()["paths"]
+    assert "case-insensitive" in paths["/api/v1/tasks"]["get"]["description"]

@@ -9,11 +9,14 @@ is bcrypt's minimum cost factor: real enough to exercise the same code path as
 the library default, cheap enough that hundreds of fixtures do not add up to a
 slow suite. `verify_password` reads the cost out of the hash itself, so a
 value hashed at rounds=4 verifies exactly like one hashed at the production
-default of 12 — nothing downstream can tell the difference.
+default of 12 — nothing downstream can tell the difference. `auth_headers`
+mints a real token, so guarded-route tests go through the real
+`get_current_user` rather than a dependency override.
 """
 
 import bcrypt
 
+from app.core.security import create_access_token
 from app.models import User
 
 TEST_PASSWORD = "correct-horse-battery"
@@ -25,3 +28,9 @@ TEST_PASSWORD_HASH = bcrypt.hashpw(TEST_PASSWORD.encode("utf-8"), bcrypt.gensalt
 def make_user(username: str, **fields: object) -> User:
     """Build a `User` with a valid hash, unsaved — the caller still adds it."""
     return User(username=username, hashed_password=TEST_PASSWORD_HASH, **fields)
+
+
+def auth_headers(user: User) -> dict[str, str]:
+    """Bearer header for a flushed user — a real token through the real `get_current_user`."""
+    assert user.id is not None, "flush the user before minting its token"
+    return {"Authorization": f"Bearer {create_access_token(user.id)}"}

@@ -5,12 +5,13 @@ PostgreSQL, laid out in loosely coupled layers along DDD lines.
 
 > **Status:** projects and tags are full CRUD. Tasks are list and create only
 > under a project — no update or delete endpoint yet — plus a top-level list
-> across every project with `status`/`priority` filters, and a bookmark a
-> logged-in user can add to any task (no un-bookmark, no listing bookmarks
-> back). Users register, log in with a JWT, and can read or update their own
-> profile; a public, read-only profile lookup stays open to anyone. All of it
-> sits on the same response contract, database wiring and error handling, and
-> all of it is exercised by tests.
+> across every project with `status`/`priority` filters, and a bookmark an
+> active logged-in user can add to any task (no un-bookmark, no listing
+> bookmarks back). Users register, log in with a JWT, and can read or update
+> their own profile; a public, read-only profile lookup stays open to anyone.
+> Admin and project-manager guards exist (`app/api/permissions.py`) but guard
+> no route yet. All of it sits on the same response contract, database wiring
+> and error handling, and all of it is exercised by tests.
 
 ## Stack
 
@@ -179,6 +180,28 @@ password and running up bcrypt's CPU cost with repeated failed attempts are
 both unmitigated in the app. Put a proxy or gateway that rate-limits that path
 in front before exposing it publicly.
 
+`user.role` (`user`/`admin`, default `user`) and `user.is_active` (default
+`true`) are set only through SQL — there is no endpoint for either, and
+neither appears in `UserRead`. Both are read from the database row on every
+request, never from the JWT, so a change takes effect on the account's very
+next request rather than waiting for the old token to expire. `POST
+/users/login` is unchanged: a disabled account can still obtain a token.
+Today only `POST /api/v1/tasks/{task_id}/bookmark` checks `is_active` (403
+`inactive-user`, via `ActiveUserDep`) — `GET`/`PUT /users/me` accept any valid
+token regardless of `is_active`.
+
+```sql
+UPDATE "user" SET role = 'admin' WHERE username = '...';
+UPDATE "user" SET is_active = false WHERE username = '...';  -- true to restore
+```
+
+`verify_admin_role` (403 `admin-required`) and `verify_project_manager`
+(owner or admin; 404 `project-not-found` for a missing project, then 403
+`project-manager-required` — a project with no owner is manageable by admins
+only) exist in `app/api/permissions.py` but guard no route yet: creating,
+updating or deleting a project or a tag is not actually protected by them
+today.
+
 ## Tasks
 
 | Method | Path | |
@@ -186,7 +209,7 @@ in front before exposing it publicly.
 | `GET` | `/api/v1/tasks` | Every task, across every project, filterable by `status`/`priority`. Public. |
 | `GET` | `/api/v1/projects/{project_id}/tasks` | One project's tasks, no filters. Public. `404` if the project does not exist. |
 | `POST` | `/api/v1/projects/{project_id}/tasks` | Create a task in a project. `priority` defaults to `medium`. |
-| `POST` | `/api/v1/tasks/{task_id}/bookmark` | Bookmark a task. Requires `Authorization: Bearer <token>`. |
+| `POST` | `/api/v1/tasks/{task_id}/bookmark` | Bookmark a task. Requires `Authorization: Bearer <token>` for an active account. |
 
 `GET /api/v1/tasks` takes `status` and `priority` as equality filters that
 combine with AND; either or both may be omitted. Both are case-insensitive —
@@ -224,7 +247,9 @@ curl -s -X POST localhost:8000/api/v1/projects/1/tasks \
   -d '{"title": "Ship it", "priority": "high"}'
 ```
 
-Bookmarking needs a token from `/api/v1/users/login`:
+Bookmarking needs a token from `/api/v1/users/login`, for an account that is
+still active — a disabled account's token gets `403` (`inactive-user`), not
+the `401` a missing or invalid token gets:
 
 ```bash
 curl -s -X POST localhost:8000/api/v1/tasks/1/bookmark \

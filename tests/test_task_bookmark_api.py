@@ -116,6 +116,47 @@ async def test_bookmarking_requires_a_logged_in_user(api_client: AsyncClient) ->
     assert response.status_code == HTTPStatus.UNAUTHORIZED
 
 
+async def test_an_inactive_users_token_is_refused_with_403(
+    db_session: AsyncSession, api_client: AsyncClient
+) -> None:
+    project = Project(name="Holder")
+    user = make_user("disabled-worker", is_active=False)
+    db_session.add_all([project, user])
+    await db_session.flush()
+    task = Task(title="Bookmark me", project_id=project.id)
+    db_session.add(task)
+    await db_session.flush()
+
+    response = await api_client.post(bookmark_url(task.id), headers=auth_headers(user))
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert response.json()["type"].endswith("inactive-user")
+
+
+async def test_a_token_minted_while_active_is_refused_after_deactivation(
+    db_session: AsyncSession, api_client: AsyncClient
+) -> None:
+    """`is_active` is read from the row on every request, not from the
+    token, so a deactivation between the token's issue and its use bites on
+    the very next request."""
+    project = Project(name="Holder")
+    user = make_user("soon-disabled")
+    db_session.add_all([project, user])
+    await db_session.flush()
+    task = Task(title="Bookmark me", project_id=project.id)
+    db_session.add(task)
+    await db_session.flush()
+    headers = auth_headers(user)
+
+    user.is_active = False
+    await db_session.flush()
+
+    response = await api_client.post(bookmark_url(task.id), headers=headers)
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert response.json()["type"].endswith("inactive-user")
+
+
 async def test_a_lost_race_against_the_pre_check_still_answers_409(
     db_session: AsyncSession, api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

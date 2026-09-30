@@ -13,7 +13,7 @@ from fastapi_filter import FilterDepends
 from fastapi_pagination import Page as LibraryPage
 from fastapi_pagination import Params
 
-from app.api.auth import CurrentUserDep
+from app.api.auth import ActiveUserDep
 from app.api.params import ErrorResponses, not_found
 from app.api.routers.users import UNAUTHORIZED
 from app.core.handlers import PROBLEM_CONTENT
@@ -29,6 +29,9 @@ PROJECT_NOT_FOUND = not_found("project")
 TASK_NOT_FOUND = not_found("task")
 ALREADY_BOOKMARKED: ErrorResponses = {
     409: {"content": PROBLEM_CONTENT, "description": "Already bookmarked by this user"}
+}
+INACTIVE_USER: ErrorResponses = {
+    403: {"content": PROBLEM_CONTENT, "description": "This account is disabled"}
 }
 
 
@@ -107,13 +110,12 @@ async def create_task(project_id: int, payload: TaskCreate, service: TaskService
     "/tasks/{task_id}/bookmark",
     summary="Bookmark a task",
     status_code=HTTPStatus.CREATED,
-    responses={**UNAUTHORIZED, **TASK_NOT_FOUND, **ALREADY_BOOKMARKED},
+    responses={**UNAUTHORIZED, **INACTIVE_USER, **TASK_NOT_FOUND, **ALREADY_BOOKMARKED},
 )
-async def bookmark_task(
-    task_id: int, user: CurrentUserDep, service: TaskServiceDep
-) -> BookmarkRead:
-    """Logged-in users only. Not idempotent: bookmarking the same task twice
-    is a 409, not a silent no-op.
+async def bookmark_task(task_id: int, user: ActiveUserDep, service: TaskServiceDep) -> BookmarkRead:
+    """Logged-in, active users only — a disabled account gets 403, not a
+    silent pass. Not idempotent: bookmarking the same task twice is a 409,
+    not a silent no-op.
 
     `user_id` comes only from the token, never from the path or the body, so
     a caller cannot bookmark on someone else's behalf.

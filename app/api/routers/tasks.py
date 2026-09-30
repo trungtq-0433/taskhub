@@ -112,7 +112,11 @@ async def create_task(project_id: int, payload: TaskCreate, service: TaskService
     status_code=HTTPStatus.CREATED,
     responses={**UNAUTHORIZED, **INACTIVE_USER, **TASK_NOT_FOUND, **ALREADY_BOOKMARKED},
 )
-async def bookmark_task(task_id: int, user: ActiveUserDep, service: TaskServiceDep) -> BookmarkRead:
+async def bookmark_task(
+    task_id: int,
+    user: ActiveUserDep,
+    service: TaskServiceDep,
+) -> BookmarkRead:
     """Logged-in, active users only — a disabled account gets 403, not a
     silent pass. Not idempotent: bookmarking the same task twice is a 409,
     not a silent no-op.

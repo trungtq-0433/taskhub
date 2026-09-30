@@ -8,6 +8,7 @@ this surface stayed folded in.
 
 from http import HTTPStatus
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -151,6 +152,26 @@ async def test_the_top_level_list_rejects_page_zero(api_client: AsyncClient) -> 
     response = await api_client.get(ALL_TASKS, params={"page": 0})
 
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.parametrize("page", [100_001, 10**18])
+async def test_the_top_level_list_refuses_a_page_past_the_ceiling(
+    api_client: AsyncClient, page: int
+) -> None:
+    """10**18 is the value that used to overflow Postgres's bigint OFFSET and
+    come back as a 500 `database-error`; the ceiling refuses it as a 422."""
+    response = await api_client.get(ALL_TASKS, params={"page": page})
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert response.json()["errors"][0]["field"] == "page"
+
+
+async def test_the_top_level_list_still_serves_the_last_allowed_page(
+    api_client: AsyncClient,
+) -> None:
+    response = await api_client.get(ALL_TASKS, params={"page": 100_000})
+
+    assert response.status_code == HTTPStatus.OK
 
 
 async def test_unknown_skip_and_limit_are_ignored_and_the_default_page_is_served(

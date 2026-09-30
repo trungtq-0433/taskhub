@@ -8,7 +8,7 @@ beside it under the same `tags=["tasks"]`.
 from http import HTTPStatus
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi_filter import FilterDepends
 from fastapi_pagination import Page as LibraryPage
 from fastapi_pagination import Params
@@ -35,12 +35,25 @@ INACTIVE_USER: ErrorResponses = {
 }
 
 
+class BoundedParams(Params):
+    """fastapi-pagination's `Params` with the one bound it leaves out.
+
+    Upstream `page` has no ceiling, so `offset = size * (page - 1)` can pass
+    Postgres's bigint and a public request dies as a 500 `database-error`
+    rather than being refused as a 422. 100,000 is the ceiling `/projects` and
+    `/tags` already carry, for the same reason (`Pagination` in
+    app/api/params.py). `size` keeps the library's own default and bounds.
+    """
+
+    page: int = Query(1, ge=1, le=100_000, description="Page number")
+
+
 # The handler docstrings below are published as each operation's description in
 # /docs, so they say only what a client needs. For maintainers: `params` and
 # `task_filter` are fastapi-pagination's and fastapi-filter's own dependencies,
-# not this app's in-house `PaginationDep`/`Page[T]` — `page`/`size` default and
-# bound themselves (50, 1-100, and no `page` ceiling, unlike /projects and
-# /tags). The per-field "case-insensitive" note has to live in the `GET /tasks`
+# not this app's in-house `PaginationDep`/`Page[T]` — `size` defaults and
+# bounds itself (50, 1-100), and `page` is capped by `BoundedParams` above. The
+# per-field "case-insensitive" note has to live in the `GET /tasks`
 # docstring: `FilterDepends` hands FastAPI a model class, whose signature
 # carries no field descriptions into OpenAPI (fastapi-pagination's own `Params`
 # loses its "Page number" description the same way). The repository shapes the
@@ -50,13 +63,13 @@ INACTIVE_USER: ErrorResponses = {
 @router.get("/tasks", summary="List tasks across every project")
 async def list_all_tasks(
     service: TaskServiceDep,
-    params: Annotated[Params, Depends()],
+    params: Annotated[BoundedParams, Depends()],
     task_filter: TaskFilter = FilterDepends(TaskFilter),
 ) -> LibraryPage[TaskRead]:
     """Ordered by id; each task carries its tags and its assignee.
 
     `status` and `priority` are case-insensitive (`TODO` matches `todo`) and
-    combine with AND. `size` defaults to 50, at most 100.
+    combine with AND. `page` goes up to 100,000; `size` defaults to 50, at most 100.
     """
     page = await service.list(task_filter=task_filter, params=params)
     return LibraryPage[TaskRead].create(
@@ -70,13 +83,13 @@ async def list_all_tasks(
     "/projects/{project_id}/tasks", summary="List a project's tasks", responses=PROJECT_NOT_FOUND
 )
 async def list_tasks(
-    project_id: int, service: TaskServiceDep, params: Annotated[Params, Depends()]
+    project_id: int, service: TaskServiceDep, params: Annotated[BoundedParams, Depends()]
 ) -> LibraryPage[TaskRead]:
     """Ordered by id; each task carries its tags and its assignee.
 
-    `size` defaults to 50, at most 100. A project that does not exist answers
-    404, not an empty page. This route takes no `status`/`priority` filters —
-    those are `GET /tasks` only.
+    `page` goes up to 100,000; `size` defaults to 50, at most 100. A project
+    that does not exist answers 404, not an empty page. This route takes no
+    `status`/`priority` filters — those are `GET /tasks` only.
     """
     # `project_id` is applied as its own `WHERE` in the repository. Tags and
     # assignee are eager-loaded there, so the statement count does not grow

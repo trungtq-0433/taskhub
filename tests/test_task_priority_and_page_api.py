@@ -6,6 +6,8 @@ PR outside of what the nested route's response shape actually requires —
 these are new tests, not edits to existing ones.
 """
 
+from http import HTTPStatus
+
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,3 +60,16 @@ async def test_the_nested_list_defaults_to_size_50(
     page = (await api_client.get(tasks_url(project.id))).json()
 
     assert page["size"] == 50
+
+
+async def test_the_nested_list_refuses_a_page_past_the_ceiling(
+    db_session: AsyncSession, api_client: AsyncClient
+) -> None:
+    """On `main` this route capped `page` at 100,000 and answered 422; moving it
+    onto fastapi-pagination must not turn the same request into a 500."""
+    project, _, _ = await _seed(db_session)
+
+    response = await api_client.get(tasks_url(project.id), params={"page": 10**18})
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert response.json()["errors"][0]["field"] == "page"

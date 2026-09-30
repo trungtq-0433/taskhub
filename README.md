@@ -222,21 +222,18 @@ always lists everything in that project.
 curl -s "localhost:8000/api/v1/tasks?status=todo&priority=high"
 ```
 
-Both task lists are paginated: `page` starts at 1 with no upper bound, `size`
-is 1-100 and defaults to 50 when omitted. That is wider than `/api/v1/projects`
-and `/api/v1/tags`, which default to `size=20` and cap `page` at 100000 — the
-task lists and the older list routes are paginated by two different libraries
-under the hood, and were never meant to share a default. One consequence of
-having no ceiling on the task lists: a `page` whose offset overflows
-Postgres's own bigint answers `500`, not `422` — a known, accepted edge (the
-overflow starts past `page` ≈ 1.8×10¹⁷ at the default `size`):
+Both task lists are paginated: `page` is 1-100000, `size` is 1-100 and
+defaults to 50 when omitted. `/api/v1/projects` and `/api/v1/tags` share the
+same `page` ceiling but default to `size=20` — the task lists and the older
+list routes are paginated by two different libraries under the hood, and were
+never meant to share a default. The `page` ceiling is not arbitrary: without
+it the computed offset can pass Postgres's bigint, and the request dies as a
+`500` instead of being refused as a `422`:
 
 ```bash
-curl -s "localhost:8000/api/v1/tasks?page=10000000000000000"    # 200, empty page
-curl -s "localhost:8000/api/v1/tasks?page=1000000000000000000"  # 500, offset overflows bigint
+curl -s "localhost:8000/api/v1/tasks?page=100000"               # 200, empty page
+curl -s "localhost:8000/api/v1/tasks?page=1000000000000000000"  # 422, page past the ceiling
 ```
-
-(`?page=1e18` is a plain `422` — scientific notation is not an integer.)
 
 Every task carries a `priority` of `low`, `medium` or `high`, defaulting to
 `medium` when a create request leaves it out:

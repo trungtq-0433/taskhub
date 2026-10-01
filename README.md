@@ -3,12 +3,15 @@
 A task and project management API built on FastAPI, SQLAlchemy 2.0 async and
 PostgreSQL, laid out in loosely coupled layers along DDD lines.
 
-> **Status:** projects and tags are full CRUD. Tasks are list and create only,
-> nested under a project — no update or delete endpoint yet. Users register,
-> log in with a JWT, and can read or update their own profile; a public,
-> read-only profile lookup stays open to anyone. All of it sits on the same
-> response contract, database wiring and error handling, and all of it is
-> exercised by tests.
+> **Status:** projects and tags are full CRUD. Tasks are list and create only
+> under a project — no update or delete endpoint yet — plus a top-level list
+> across every project with `status`/`priority` filters, and a bookmark an
+> active logged-in user can add to any task (no un-bookmark, no listing
+> bookmarks back). Users register, log in with a JWT, and can read or update
+> their own profile; a public, read-only profile lookup stays open to anyone.
+> Admin and project-manager guards exist (`app/api/permissions.py`) but guard
+> no route yet. All of it sits on the same response contract, database wiring
+> and error handling, and all of it is exercised by tests.
 
 ## Stack
 
@@ -23,6 +26,11 @@ PostgreSQL, laid out in loosely coupled layers along DDD lines.
 The interpreter is pinned in `.python-version` to match the runtime image. uv
 would otherwise resolve to the newest Python on the machine, and the two
 environments would quietly diverge.
+
+`fastapi-filter` carries pins of its own, tighter than this project's floor:
+`fastapi<1.0` and `SQLAlchemy<2.1`. Both already sit inside those bounds, but a
+future bump to either has to clear fastapi-filter's ceiling too, not just the
+version this project asks for in `pyproject.toml`.
 
 ## Quick start
 
@@ -48,7 +56,8 @@ uv run uvicorn app.main:app --reload
 ```
 
 The API serves projects and tags (full CRUD), tasks nested under a project
-(list and create), user registration/login/profile management, and a public
+(list and create) plus a top-level task list across every project and a
+bookmark endpoint, user registration/login/profile management, and a public
 read-only profile lookup, all under `/api/v1`. Browse them at `/docs`, which
 also renders every error response each route can return. Those three doc
 routes are served everywhere except production.
@@ -170,6 +179,84 @@ There is no rate limiting or lockout on `/users/login`: brute-forcing a
 password and running up bcrypt's CPU cost with repeated failed attempts are
 both unmitigated in the app. Put a proxy or gateway that rate-limits that path
 in front before exposing it publicly.
+
+`user.role` (`user`/`admin`, default `user`) and `user.is_active` (default
+`true`) are set only through SQL — there is no endpoint for either, and
+neither appears in `UserRead`. Both are read from the database row on every
+request, never from the JWT, so a change takes effect on the account's very
+next request rather than waiting for the old token to expire. `POST
+/users/login` is unchanged: a disabled account can still obtain a token.
+Today only `POST /api/v1/tasks/{task_id}/bookmark` checks `is_active` (403
+`inactive-user`, via `ActiveUserDep`) — `GET`/`PUT /users/me` accept any valid
+token regardless of `is_active`.
+
+```sql
+UPDATE "user" SET role = 'admin' WHERE username = '...';
+UPDATE "user" SET is_active = false WHERE username = '...';  -- true to restore
+```
+
+`verify_admin_role` (403 `admin-required`) and `verify_project_manager`
+(owner or admin; 404 `project-not-found` for a missing project, then 403
+`project-manager-required` — a project with no owner is manageable by admins
+only) exist in `app/api/permissions.py` but guard no route yet: creating,
+updating or deleting a project or a tag is not actually protected by them
+today.
+
+## Tasks
+
+| Method | Path | |
+|---|---|---|
+| `GET` | `/api/v1/tasks` | Every task, across every project, filterable by `status`/`priority`. Public. |
+| `GET` | `/api/v1/projects/{project_id}/tasks` | One project's tasks, no filters. Public. `404` if the project does not exist. |
+| `POST` | `/api/v1/projects/{project_id}/tasks` | Create a task in a project. `priority` defaults to `medium`. |
+| `POST` | `/api/v1/tasks/{task_id}/bookmark` | Bookmark a task. Requires `Authorization: Bearer <token>` for an active account. |
+
+`GET /api/v1/tasks` takes `status` and `priority` as equality filters that
+combine with AND; either or both may be omitted. Both are case-insensitive —
+`?status=TODO` matches the stored, lowercase `todo` — and a value neither
+enum recognizes is a `422` naming the field and the values it does accept.
+The nested `GET /api/v1/projects/{project_id}/tasks` takes neither filter; it
+always lists everything in that project.
+
+```bash
+curl -s "localhost:8000/api/v1/tasks?status=todo&priority=high"
+```
+
+Both task lists are paginated: `page` is 1-100000, `size` is 1-100 and
+defaults to 50 when omitted. `/api/v1/projects` and `/api/v1/tags` share the
+same `page` ceiling but default to `size=20` — the task lists and the older
+list routes are paginated by two different libraries under the hood, and were
+never meant to share a default. The `page` ceiling is not arbitrary: without
+it the computed offset can pass Postgres's bigint, and the request dies as a
+`500` instead of being refused as a `422`:
+
+```bash
+curl -s "localhost:8000/api/v1/tasks?page=100000"               # 200, empty page
+curl -s "localhost:8000/api/v1/tasks?page=1000000000000000000"  # 422, page past the ceiling
+```
+
+Every task carries a `priority` of `low`, `medium` or `high`, defaulting to
+`medium` when a create request leaves it out:
+
+```bash
+curl -s -X POST localhost:8000/api/v1/projects/1/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "Ship it", "priority": "high"}'
+```
+
+Bookmarking needs a token from `/api/v1/users/login`, for an account that is
+still active — a disabled account's token gets `403` (`inactive-user`), not
+the `401` a missing or invalid token gets:
+
+```bash
+curl -s -X POST localhost:8000/api/v1/tasks/1/bookmark \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+`201` returns `{"task_id": 1, "created_at": "..."}`. The same user bookmarking
+the same task again is a `409` (`already-bookmarked`), not a silent no-op; an
+unknown task is `404` (`task-not-found`). There is no un-bookmark and no
+listing your bookmarks back yet — only the one `POST`.
 
 ## Quality gate
 

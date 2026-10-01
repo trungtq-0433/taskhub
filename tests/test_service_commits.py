@@ -15,16 +15,17 @@ write is actually established.
 from collections.abc import AsyncGenerator
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.models import Project, Tag, Task, User
+from app.models import Project, Tag, Task, User, task_bookmark
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.schemas.tag import TagCreate
 from app.schemas.task import TaskCreate
 from app.services.project import ProjectService
 from app.services.tag import TagService
 from app.services.task import TaskService
+from tests.factories import make_user
 
 
 @pytest.fixture
@@ -117,3 +118,29 @@ async def test_task_create_survives_into_a_separate_session(
 
     assert found is not None, "the task did not outlive the session that wrote it"
     assert found.title == "Durable task"
+
+
+async def test_bookmark_survives_into_a_separate_session(
+    committing_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """`task_bookmark` is a Core table, not an ORM model — same rule applies:
+    a new entity gaining a write endpoint gets a durability test."""
+    async with committing_sessions() as writing:
+        writing.add(user := make_user("commits-bookmarker"))
+        await writing.commit()
+        project = await ProjectService(writing).create(
+            ProjectCreate(name="Durable bookmark holder")
+        )
+        task = await TaskService(writing).create(project.id, TaskCreate(title="Bookmark target"))
+        await TaskService(writing).bookmark(task.id, user_id=user.id)
+
+    async with committing_sessions() as reading:
+        row = (
+            await reading.execute(
+                select(task_bookmark).where(
+                    task_bookmark.c.user_id == user.id, task_bookmark.c.task_id == task.id
+                )
+            )
+        ).one_or_none()
+
+    assert row is not None, "the bookmark did not outlive the session that wrote it"

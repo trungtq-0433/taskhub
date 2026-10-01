@@ -82,6 +82,25 @@ TASK_TITLE_MAX_LENGTH = 200
 # same reason PROJECT_STATUS_MAX_LENGTH is wider than "archived".
 TASK_STATUS_MAX_LENGTH = 20
 
+
+class TaskPriority(StrEnum):
+    """Allowed values for `task.priority`.
+
+    VARCHAR for the same reason as `TaskStatus`: a Postgres `ENUM` cannot drop
+    a value and Alembic does not diff its members, so changing the set would
+    autogenerate an empty migration. The database does not enforce this set;
+    only the API layer does.
+    """
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+# Wider than the longest value TaskPriority holds today ("medium", 6), for the
+# same reason TASK_STATUS_MAX_LENGTH is wider than "doing".
+TASK_PRIORITY_MAX_LENGTH = 20
+
 # API-side only, like the project's — the column is TEXT.
 TASK_DESCRIPTION_MAX_LENGTH = 10_000
 
@@ -102,3 +121,21 @@ HASHED_PASSWORD_LENGTH = 60
 # A client-supplied list becomes an `IN` clause, so it needs a ceiling. Twenty
 # tags on one task is already well past what anyone reads.
 TASK_MAX_TAGS = 20
+
+
+class UserRole(StrEnum):
+    """Allowed values for `user.role`.
+
+    VARCHAR for the same reason as `ProjectStatus`/`TaskStatus`: a Postgres
+    `ENUM` cannot drop a value and Alembic does not diff its members, so
+    changing the set would autogenerate an empty migration. The database does
+    not enforce this set; only the API layer does.
+    """
+
+    USER = "user"
+    ADMIN = "admin"
+
+
+# Wider than the longest value UserRole holds today ("admin", 5), same
+# reasoning as TASK_STATUS_MAX_LENGTH.
+USER_ROLE_MAX_LENGTH = 20

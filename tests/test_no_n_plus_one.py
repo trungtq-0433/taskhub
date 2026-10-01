@@ -48,6 +48,7 @@ from httpx import AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from app.constants import TaskPriority
 from app.models import Project, Tag, Task
 from tests.factories import make_user
 
@@ -79,7 +80,9 @@ def count_selects(engine: AsyncEngine) -> Iterator[list[str]]:
         event.remove(engine.sync_engine, "before_cursor_execute", before_cursor_execute)
 
 
-async def _project_with_tasks(session: AsyncSession, name: str, count: int) -> Project:
+async def _project_with_tasks(
+    session: AsyncSession, name: str, count: int, *, priority: TaskPriority = TaskPriority.MEDIUM
+) -> Project:
     """One project, `count` tasks, every task assigned and wearing both tags."""
     project = Project(name=name)
     user = make_user(f"owner-{name.lower()}")
@@ -88,7 +91,9 @@ async def _project_with_tasks(session: AsyncSession, name: str, count: int) -> P
     await session.flush()
 
     for i in range(count):
-        task = Task(title=f"{name} {i}", project_id=project.id, assignee_id=user.id)
+        task = Task(
+            title=f"{name} {i}", project_id=project.id, assignee_id=user.id, priority=priority
+        )
         task.tags = tags
         session.add(task)
     await session.flush()
@@ -124,3 +129,26 @@ async def test_the_statement_count_does_not_grow_with_the_number_of_tasks(
     assert len(twenty.json()["items"]) == 20
     assert all(len(item["tags"]) == 2 for item in twenty.json()["items"])
     assert all(item["assignee"] is not None for item in twenty.json()["items"])
+
+
+async def test_the_top_level_list_stays_flat_under_a_priority_filter(
+    db_session: AsyncSession, api_client: AsyncClient, _engine: AsyncEngine
+) -> None:
+    """`GET /tasks` costs one fewer statement than the nested route: there is
+    no project in the path to check for existence."""
+    await _project_with_tasks(db_session, "Rare", 1, priority=TaskPriority.LOW)
+    await _project_with_tasks(db_session, "Common", 20, priority=TaskPriority.HIGH)
+
+    with count_selects(_engine) as for_one:
+        one = await api_client.get("/api/v1/tasks", params={"priority": "low", "size": 100})
+    with count_selects(_engine) as for_twenty:
+        twenty = await api_client.get("/api/v1/tasks", params={"priority": "high", "size": 100})
+
+    assert for_one, "the counter saw no statements — it is not listening to the engine under test"
+    assert len(for_one) == len(for_twenty), (
+        f"{len(for_one)} statements for 1 task, {len(for_twenty)} for 20 — "
+        f"the cost is tracking the row count, which is what N+1 means"
+    )
+
+    assert one.json()["total"] == 1
+    assert len(twenty.json()["items"]) == 20

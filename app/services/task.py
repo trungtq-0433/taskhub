@@ -1,16 +1,20 @@
 """Business rules and transaction boundaries for tasks."""
 
+from collections.abc import Sequence
 from typing import Annotated
 
 from fastapi import Depends
+from fastapi_pagination import Page, Params
+from sqlalchemy.exc import IntegrityError
 
 from app.core.database import SessionDep
-from app.core.exceptions import BusinessRuleError
+from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError
 from app.models import Tag, Task, User
+from app.repositories.bookmark import BookmarkRepository, BookmarkRow
 from app.repositories.tag import TagRepository
 from app.repositories.task import TaskRepository
 from app.repositories.user import UserRepository
-from app.schemas.task import TaskCreate
+from app.schemas.task import TaskCreate, TaskFilter
 from app.services.project import ProjectService
 
 
@@ -20,6 +24,7 @@ class TaskService:
         self._tasks = TaskRepository(session)
         self._tags = TagRepository(session)
         self._users = UserRepository(session)
+        self._bookmarks = BookmarkRepository(session)
         # Composed rather than reaching for ProjectRepository directly: both
         # routes need "404 if the project does not exist", and ProjectService
         # already owns that answer including its `project-not-found` slug.
@@ -27,12 +32,28 @@ class TaskService:
         # the same reason.
         self._projects = ProjectService(session)
 
-    async def list_for_project(
-        self, project_id: int, *, page: int, size: int
-    ) -> tuple[list[Task], int]:
-        await self._projects.get(project_id)
-        items = await self._tasks.list_for_project(project_id, offset=(page - 1) * size, limit=size)
-        return list(items), await self._tasks.count_for_project(project_id)
+    async def list(
+        self,
+        *,
+        project_id: int | None = None,
+        task_filter: TaskFilter | None = None,
+        params: Params,
+    ) -> Page[Task]:
+        """One page of tasks, paginated by fastapi-pagination.
+
+        `project_id=None` is `GET /tasks`: no project in the path, so no 404
+        to answer. `task_filter` is only ever set for that same route — the
+        nested route takes no status/priority filters, so it never builds one.
+        """
+        if project_id is not None:
+            await self._projects.get(project_id)  # nested route: missing project = 404, not []
+        return await self._tasks.paginate(task_filter, project_id=project_id, params=params)
+
+    async def get(self, task_id: int) -> Task:
+        task = await self._tasks.get(task_id)
+        if task is None:
+            raise NotFoundError(f"Task {task_id} does not exist.", problem_type="task-not-found")
+        return task
 
     async def create(self, project_id: int, payload: TaskCreate) -> Task:
         await self._projects.get(project_id)
@@ -43,6 +64,7 @@ class TaskService:
             title=payload.title,
             description=payload.description,
             status=payload.status,
+            priority=payload.priority,
             project_id=project_id,
         )
         # The objects, not the ids. The response reads `task.assignee` and
@@ -52,11 +74,36 @@ class TaskService:
         # nothing extra, and `expire_on_commit=False` is what lets them survive
         # the commit below.
         task.assignee = assignee
-        task.tags = tags
+        task.tags = list(tags)
 
         await self._tasks.add(task)
         await self._session.commit()
         return task
+
+    async def bookmark(self, task_id: int, *, user_id: int) -> BookmarkRow:
+        """First call -> 201; the same user on the same task again -> 409
+        (not idempotent).
+        """
+        await self.get(task_id)
+        if await self._bookmarks.exists(user_id=user_id, task_id=task_id):
+            raise ConflictError(
+                f"User {user_id} already bookmarked task {task_id}.",
+                problem_type="already-bookmarked",
+            )
+        try:
+            row = await self._bookmarks.add(user_id=user_id, task_id=task_id)
+            await self._session.commit()
+        except IntegrityError as exc:
+            # The composite primary key is the real guard, same as
+            # `AuthService.register`: two requests can both pass the `exists`
+            # check above before either commits, and only one insert wins the
+            # race. A task deleted mid-request would also land here, and
+            # nothing deletes tasks today.
+            raise ConflictError(
+                f"User {user_id} already bookmarked task {task_id}.",
+                problem_type="already-bookmarked",
+            ) from exc
+        return row
 
     async def _resolve_assignee(self, assignee_id: int | None) -> User | None:
         if assignee_id is None:
@@ -69,17 +116,25 @@ class TaskService:
             )
         return user
 
-    async def _resolve_tags(self, tag_ids: list[int]) -> list[Tag]:
+    async def _resolve_tags(self, tag_ids: Sequence[int]) -> Sequence[Tag]:
         """Load every tag at once, and name the ids that do not exist.
 
         Left to the database this would be an IntegrityError, which the global
         handler renders as a generic 409 — the client would learn that
         something conflicted but not which id was wrong.
+
+        Typed as `Sequence`, not the bare `list[...]` the original wrote: this
+        class now has a method named `list`, and a plain `list[int]`
+        annotation on a method defined after it resolves against that method
+        object instead of the builtin — a real `TypeError` at import time, not
+        a style nit. Calling `list(...)` inside a method *body* stays safe;
+        only a bare annotation written directly in the class's execution order
+        is affected.
         """
         if not tag_ids:
             return []
 
-        tags = list(await self._tags.list_by_ids(tag_ids))
+        tags = await self._tags.list_by_ids(tag_ids)
         missing = sorted(set(tag_ids) - {tag.id for tag in tags})
         if missing:
             raise BusinessRuleError(f"No tags with ids {missing}.", problem_type="unknown-tag-ids")

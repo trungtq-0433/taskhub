@@ -43,6 +43,27 @@ field never reaches this either way.
 """
 
 
+def _lowercase(value: object) -> object:
+    return value.lower() if isinstance(value, str) else value
+
+
+CaseInsensitive = BeforeValidator(_lowercase)
+"""Lowercase a query value before it reaches enum validation:
+`?status=TODO` matches the stored, lowercase `TaskStatus.TODO` instead of 422ing.
+
+Query params only — request bodies stay exact-case, so this is never applied
+to a schema field. Lives here rather than in a filter DTO's own module because
+both `TaskFilter` fields need it: a `BeforeValidator` inside `Annotated[...]`
+runs as part of the field's own validation, before `fastapi_filter.FilterDepends`
+ever calls a model validator, which is what makes it work at all — `FilterDepends`
+turns each filter field into its own `Query(...)` parameter typed by the field's
+bare annotation and validates that parameter before the model as a whole is ever
+built, so a `field_validator(mode="before")` on the class never gets a turn
+(verified against fastapi-filter 3.0.0 / FastAPI 0.141.1: `?status=TODO` 422s
+that way, and 200s through the annotation).
+"""
+
+
 class Page[T](BaseModel):
     """A page of results, with the counts a client needs to navigate."""
 

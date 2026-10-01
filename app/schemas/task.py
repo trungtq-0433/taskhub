@@ -1,7 +1,9 @@
 """Task DTOs — the only place in this API where data nests."""
 
 from datetime import datetime
+from typing import Annotated
 
+from fastapi_filter.contrib.sqlalchemy import Filter
 from pydantic import Field
 
 from app.constants import (
@@ -9,11 +11,34 @@ from app.constants import (
     TASK_DESCRIPTION_MAX_LENGTH,
     TASK_MAX_TAGS,
     TASK_TITLE_MAX_LENGTH,
+    TaskPriority,
     TaskStatus,
 )
-from app.schemas.base import BaseSchema
+from app.models import Task
+from app.schemas.base import BaseSchema, CaseInsensitive
 from app.schemas.tag import TagRead
 from app.schemas.user import UserSummary
+
+
+class TaskFilter(Filter):
+    """The two query filters `GET /tasks` takes, reshaped as the one DTO
+    `fastapi_filter.FilterDepends` needs.
+
+    Equality only — no `__in`/`__ilike`/`order_by`: a field named plainly
+    `status` or `priority`, with no operator suffix, is what `Filter.filter()`
+    treats as `Task.status == value`.
+
+    This is the one schema in the app that names an ORM class
+    (`Constants.model`) — `fastapi_filter` itself asks for it, to build the
+    `.filter()` it runs against a `Select`. Every other DTO here stays
+    model-agnostic; this one cannot, by the library's own contract.
+    """
+
+    status: Annotated[TaskStatus | None, CaseInsensitive] = None
+    priority: Annotated[TaskPriority | None, CaseInsensitive] = None
+
+    class Constants(Filter.Constants):
+        model = Task
 
 
 class TaskCreate(BaseSchema):
@@ -26,6 +51,7 @@ class TaskCreate(BaseSchema):
     title: str = Field(min_length=NAME_MIN_LENGTH, max_length=TASK_TITLE_MAX_LENGTH)
     description: str | None = Field(default=None, max_length=TASK_DESCRIPTION_MAX_LENGTH)
     status: TaskStatus = TaskStatus.TODO
+    priority: TaskPriority = TaskPriority.MEDIUM
     assignee_id: int | None = None
     # Capped: this list becomes an `IN` clause, and an unbounded one is an
     # unbounded query built from client input.
@@ -44,11 +70,23 @@ class TaskRead(BaseSchema):
     title: str
     description: str | None
     status: TaskStatus
+    priority: TaskPriority
     project_id: int
     assignee: UserSummary | None
     tags: list[TagRead]
     created_at: datetime
     updated_at: datetime
+
+
+class BookmarkRead(BaseSchema):
+    """The 201 body for `POST /tasks/{task_id}/bookmark`.
+
+    No `Location` header and no field beyond these two: there is no `GET` for
+    a bookmark to point at, and this endpoint is POST-only, not idempotent.
+    """
+
+    task_id: int
+    created_at: datetime
 
 
 # Here rather than with the user schemas because its fields are the task

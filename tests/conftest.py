@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator, Callable, Coroutine
 from typing import Any, Protocol
 
 import pytest
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -12,7 +13,9 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from app.api.permissions import AdminDep, ProjectManagerDep
 from app.core.database import get_session
+from app.core.handlers import register_exception_handlers
 from app.main import app
 from tests.db import (
     assert_not_the_dev_database,
@@ -123,3 +126,42 @@ async def api_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, No
             yield ac
     finally:
         app.dependency_overrides.pop(get_session, None)
+
+
+def _build_permission_test_app(db_session: AsyncSession) -> FastAPI:
+    """A throwaway `FastAPI` instance for exercising `AdminDep`/`ProjectManagerDep`.
+
+    Neither `client` nor `route_client` fits: `route_client` does not override
+    `get_session`, so a route mounted there would run against the real
+    database, and mounting on the shared `app` at all would invalidate its
+    cached OpenAPI schema for every other test in the suite. This app exists
+    only for the duration of one test — its own exception handlers, so a
+    `ForbiddenError`/`NotFoundError` renders the same problem+json body the
+    real app would, and its own `get_session` override pointed at the test's
+    `db_session`.
+    """
+    test_app = FastAPI()
+    register_exception_handlers(test_app)
+
+    @test_app.get("/admin-only")
+    async def admin_only(user: AdminDep) -> dict[str, int]:
+        return {"user_id": user.id}
+
+    @test_app.get("/projects/{project_id}/manager-only")
+    async def manager_only(user: ProjectManagerDep) -> dict[str, int]:
+        return {"user_id": user.id}
+
+    async def _override_session() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    test_app.dependency_overrides[get_session] = _override_session
+    return test_app
+
+
+@pytest.fixture
+async def permission_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """An `AsyncClient` bound to the throwaway app above, sharing the test's
+    transaction so rows it creates roll back like every other test's."""
+    transport = ASGITransport(app=_build_permission_test_app(db_session))
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac

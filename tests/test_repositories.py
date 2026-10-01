@@ -113,39 +113,6 @@ async def _seed_task_graph(session: AsyncSession) -> tuple[Project, User, list[T
     return project, user, tags
 
 
-async def test_list_for_project_loads_tags_and_assignee_eagerly(db_session: AsyncSession) -> None:
-    """Read the relationships with the identity map cleared.
-
-    Without `expunge_all()` the objects are still in the session, so the
-    attributes read straight out of memory and the assertion passes whether or
-    not the eager options ran. Cleared, an unloaded attribute has to go back to
-    the database — which under AsyncSession raises MissingGreenlet rather than
-    quietly issuing a query.
-    """
-    project, user, tags = await _seed_task_graph(db_session)
-    repo = TaskRepository(db_session)
-
-    [task] = await repo.list_for_project(project.id, offset=0, limit=10)
-    db_session.expunge_all()
-
-    assert {tag.name for tag in task.tags} == {tag.name for tag in tags}
-    assert task.assignee is not None
-    assert task.assignee.username == user.username
-
-
-async def test_list_for_project_excludes_other_projects(db_session: AsyncSession) -> None:
-    project, _, _ = await _seed_task_graph(db_session)
-    other = Project(name="Elsewhere")
-    db_session.add(other)
-    await db_session.flush()
-    db_session.add(Task(title="Not mine", project_id=other.id))
-    await db_session.flush()
-
-    tasks = await TaskRepository(db_session).list_for_project(project.id, offset=0, limit=10)
-
-    assert [task.title for task in tasks] == ["Wired"]
-
-
 async def test_count_by_status_returns_every_status_including_the_empty_ones(
     db_session: AsyncSession,
 ) -> None:

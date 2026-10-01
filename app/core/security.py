@@ -77,13 +77,24 @@ def decode_access_token(token: str) -> int | None:
     or a subclass, and every one of them means the same thing to the caller:
     no id. The caller still has to look the id up — a token can outlive the
     user it names.
+
+    `verify_iat` is turned off deliberately, not left to PyJWT's default of
+    `True`. `iat` here is informational only — nothing in this codebase gates
+    a token's validity on how long it has existed, `exp` alone governs
+    expiry — so there is no "not valid before" semantics to protect. Left at
+    the default, PyJWT rejects a token the instant `iat`'s floor-truncated
+    second is later than the wall clock read at decode time, which a real
+    clock briefly stepping backward (an NTP or VM host resync, observed on
+    this WSL2 environment) makes true for a token minted and decoded
+    milliseconds apart — turning an ordinary request into a false 401.
+    Verifying a claim this codebase never relies on is not worth that hazard.
     """
     try:
         payload = jwt.decode(
             token,
             settings.jwt_secret_key,
             algorithms=[JWT_ALGORITHM],
-            options={"require": ["exp", "sub"]},
+            options={"require": ["exp", "sub"], "verify_iat": False},
         )
     except jwt.InvalidTokenError:
         return None

@@ -68,6 +68,22 @@ def test_an_expired_token_decodes_to_none() -> None:
     assert decode_access_token(token) is None
 
 
+def test_a_token_whose_iat_is_ahead_of_the_clock_still_decodes() -> None:
+    """What a backward wall-clock step between minting and decoding looks like.
+
+    `iat` is floor-truncated to the second, so a clock that steps back (a VM
+    or NTP resync) can read earlier at decode time than the token claims it
+    was issued. PyJWT's default `verify_iat` would call that token not yet
+    valid and the request would get a false 401; `exp` is the only claim that
+    governs validity here.
+    """
+    issued_ahead_of_the_clock = datetime.now(UTC) + timedelta(seconds=5)
+
+    token = create_access_token(7, now=issued_ahead_of_the_clock)
+
+    assert decode_access_token(token) == 7
+
+
 def test_a_token_signed_with_a_different_key_decodes_to_none() -> None:
     now = datetime.now(UTC)
     forged = jwt.encode(

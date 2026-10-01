@@ -5,7 +5,13 @@ from typing import TYPE_CHECKING
 from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.constants import TASK_STATUS_MAX_LENGTH, TASK_TITLE_MAX_LENGTH, TaskStatus
+from app.constants import (
+    TASK_PRIORITY_MAX_LENGTH,
+    TASK_STATUS_MAX_LENGTH,
+    TASK_TITLE_MAX_LENGTH,
+    TaskPriority,
+    TaskStatus,
+)
 from app.core.database import Base
 from app.models.mixins import TimestampMixin
 from app.models.task_tag import task_tag
@@ -29,6 +35,14 @@ class Task(Base, TimestampMixin):
         String(TASK_STATUS_MAX_LENGTH),
         default=TaskStatus.TODO,
         server_default=TaskStatus.TODO,
+    )
+    # VARCHAR, not a Postgres ENUM — see TaskPriority for why. No index: the
+    # table is small, and `status` — filtered on for longer — carries none
+    # either.
+    priority: Mapped[str] = mapped_column(
+        String(TASK_PRIORITY_MAX_LENGTH),
+        default=TaskPriority.MEDIUM,
+        server_default=TaskPriority.MEDIUM,
     )
 
     # RESTRICT is the real guard behind the service's pre-check: deleting a

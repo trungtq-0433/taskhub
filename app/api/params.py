@@ -8,10 +8,11 @@ here, they change in one place.
 
 from typing import Annotated, Any
 
-from fastapi import Query
+from fastapi import Path, Query
 from fastapi_pagination import Params
 from pydantic import BaseModel, Field
 
+from app.constants import MAX_ID
 from app.core.handlers import PROBLEM_CONTENT
 
 ErrorResponses = dict[int | str, dict[str, Any]]
@@ -61,6 +62,11 @@ class BoundedParams(Params):
     page: int = Query(1, ge=1, le=MAX_PAGE, description="Page number")
     size: int = Query(50, ge=1, le=MAX_SIZE, description="Page size")
 
+
+IdPath = Annotated[int, Path(ge=1, le=MAX_ID)]
+"""A path id bounded to the `INTEGER` column range: past 2**31-1 the value
+reaches asyncpg and comes back a 500, not a 422. New routes only; the older
+routes keep an unbounded `int`."""
 
 CONFLICT: ErrorResponses = {409: {"content": PROBLEM_CONTENT, "description": "Name already taken"}}
 

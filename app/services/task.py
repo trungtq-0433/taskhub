@@ -13,6 +13,7 @@ from app.models import Tag, Task, User
 from app.repositories.bookmark import BookmarkRepository, BookmarkRow
 from app.repositories.tag import TagRepository
 from app.repositories.task import TaskRepository
+from app.repositories.task_assignment import TaskAssignmentRepository
 from app.repositories.user import UserRepository
 from app.schemas.task import TaskCreate, TaskFilter
 from app.services.project import ProjectService
@@ -25,6 +26,7 @@ class TaskService:
         self._tags = TagRepository(session)
         self._users = UserRepository(session)
         self._bookmarks = BookmarkRepository(session)
+        self._assignments = TaskAssignmentRepository(session)
         # Composed rather than reaching for ProjectRepository directly: both
         # routes need "404 if the project does not exist", and ProjectService
         # already owns that answer including its `project-not-found` slug.
@@ -49,8 +51,8 @@ class TaskService:
             await self._projects.get(project_id)  # nested route: missing project = 404, not []
         return await self._tasks.paginate(task_filter, project_id=project_id, params=params)
 
-    async def get(self, task_id: int) -> Task:
-        task = await self._tasks.get(task_id)
+    async def get(self, task_id: int, *, for_update: bool = False) -> Task:
+        task = await (self._tasks.get_for_update if for_update else self._tasks.get)(task_id)
         if task is None:
             raise NotFoundError(f"Task {task_id} does not exist.", problem_type="task-not-found")
         return task
@@ -105,10 +107,45 @@ class TaskService:
             ) from exc
         return row
 
+    async def assign(self, task_id: int, *, assignee_id: int, assigned_by_id: int) -> Task:
+        """Lock, compare, write, record, load the response, commit last.
+
+        The response is built under the lock, never re-read after it. See
+        `docs/database.md` for the lock mode and the ordering.
+        """
+        task = await self.get(task_id, for_update=True)
+        try:
+            if task.assignee_id != assignee_id:  # unchanged: 200, no history
+                assignee = await self._get_assignee(assignee_id)
+                if not assignee.is_active:
+                    raise BusinessRuleError(
+                        f"User {assignee_id} is disabled.", problem_type="assignee-inactive"
+                    )
+                previous = task.assignee_id
+                task.assignee = assignee
+                await self._session.flush()  # autoflush is off: UPDATE before the INSERT
+                await self._assignments.add(
+                    task_id=task_id,
+                    previous_assignee_id=previous,
+                    assignee_id=assignee_id,
+                    assigned_by_id=assigned_by_id,
+                )
+            await self._session.refresh(task, ["assignee", "tags"])
+            await self._session.commit()
+        except IntegrityError as exc:
+            # The assignee (or caller) was deleted between the lookup and the
+            # write; the FK says so at the flush or the insert.
+            raise BusinessRuleError(
+                f"No user with id {assignee_id}.", problem_type="assignee-not-found"
+            ) from exc
+        return task
+
     async def _resolve_assignee(self, assignee_id: int | None) -> User | None:
         if assignee_id is None:
             return None
+        return await self._get_assignee(assignee_id)
 
+    async def _get_assignee(self, assignee_id: int) -> User:
         user = await self._users.get(assignee_id)
         if user is None:
             raise BusinessRuleError(

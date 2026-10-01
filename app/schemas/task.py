@@ -7,6 +7,7 @@ from fastapi_filter.contrib.sqlalchemy import Filter
 from pydantic import Field
 
 from app.constants import (
+    MAX_ID,
     NAME_MIN_LENGTH,
     TASK_DESCRIPTION_MAX_LENGTH,
     TASK_MAX_TAGS,
@@ -56,6 +57,13 @@ class TaskCreate(BaseSchema):
     # Capped: this list becomes an `IN` clause, and an unbounded one is an
     # unbounded query built from client input.
     tag_ids: list[int] = Field(default_factory=list, max_length=TASK_MAX_TAGS)
+
+
+class TaskAssign(BaseSchema):
+    """Required and never `null`: there is no unassign. `task_id` comes from the
+    path and `assigned_by_id` from the token, never from the body."""
+
+    assignee_id: int = Field(ge=1, le=MAX_ID)
 
 
 class TaskRead(BaseSchema):

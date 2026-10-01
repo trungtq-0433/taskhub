@@ -1,4 +1,4 @@
-"""Task endpoints: nested list/create, the top-level list, and the bookmark.
+"""Task endpoints: nested list/create, the top-level list, the bookmark and assign.
 
 One module rather than one file per route: the nested route's prefix is
 dropped so the top-level `/tasks` and `/tasks/{task_id}/bookmark` can sit
@@ -13,10 +13,10 @@ from fastapi_filter import FilterDepends
 from fastapi_pagination import Page as LibraryPage
 
 from app.api.auth import ActiveUserDep
-from app.api.params import BoundedParams, ErrorResponses, not_found
+from app.api.params import BoundedParams, ErrorResponses, IdPath, not_found
 from app.api.routers.users import UNAUTHORIZED
 from app.core.handlers import PROBLEM_CONTENT
-from app.schemas.task import BookmarkRead, TaskCreate, TaskFilter, TaskRead
+from app.schemas.task import BookmarkRead, TaskAssign, TaskCreate, TaskFilter, TaskRead
 from app.services.task import TaskServiceDep
 
 router = APIRouter(tags=["tasks"])
@@ -125,3 +125,23 @@ async def bookmark_task(
     a caller cannot bookmark on someone else's behalf.
     """
     return BookmarkRead.model_validate(await service.bookmark(task_id, user_id=user.id))
+
+
+@router.post(
+    "/tasks/{task_id}/assign",
+    summary="Assign a task to a user",
+    responses={**UNAUTHORIZED, **INACTIVE_USER, **TASK_NOT_FOUND},
+)
+async def assign_task(
+    task_id: IdPath,
+    payload: TaskAssign,
+    user: ActiveUserDep,
+    service: TaskServiceDep,
+) -> TaskRead:
+    """Any active user may assign any task to any active user, themselves
+    included. Assigning the current assignee again is a 200 no-op. There is no
+    unassign: `assignee_id` is required.
+    """
+    return TaskRead.model_validate(
+        await service.assign(task_id, assignee_id=payload.assignee_id, assigned_by_id=user.id)
+    )

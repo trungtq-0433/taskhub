@@ -15,7 +15,7 @@ write is actually established.
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import Project, Tag, Task, task_bookmark
+from app.models import Project, Tag, Task, task_assignment, task_bookmark
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.schemas.tag import TagCreate
 from app.schemas.task import TaskCreate
@@ -122,3 +122,29 @@ async def test_bookmark_survives_into_a_separate_session(
         ).one_or_none()
 
     assert row is not None, "the bookmark did not outlive the session that wrote it"
+
+
+async def test_assign_survives_into_a_separate_session(
+    committing_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The assign use case ends in a real `commit()`, not just a flush."""
+    async with committing_sessions() as writing:
+        writing.add_all([old := make_user("commits-old"), new := make_user("commits-new")])
+        await writing.commit()
+        project = await ProjectService(writing).create(ProjectCreate(name="Durable assign holder"))
+        task = await TaskService(writing).create(
+            project.id, TaskCreate(title="Assign target", assignee_id=old.id)
+        )
+        await TaskService(writing).assign(task.id, assignee_id=new.id, assigned_by_id=old.id)
+
+    async with committing_sessions() as reading:
+        found = await reading.get(Task, task.id)
+        rows = (
+            await reading.execute(
+                select(task_assignment.c.assignee_id).where(task_assignment.c.task_id == task.id)
+            )
+        ).all()
+
+    assert found is not None
+    assert found.assignee_id == new.id, "the new assignee did not outlive the writing session"
+    assert [row.assignee_id for row in rows] == [new.id]

@@ -104,6 +104,12 @@ TASK_PRIORITY_MAX_LENGTH = 20
 # API-side only, like the project's — the column is TEXT.
 TASK_DESCRIPTION_MAX_LENGTH = 10_000
 
+# API-side only, like the description limits — the column is TEXT.
+COMMENT_CONTENT_MAX_LENGTH = 5_000
+
+# `INTEGER` primary keys: a larger id is a 422, not a 500 from asyncpg.
+MAX_ID = 2**31 - 1
+
 USERNAME_MAX_LENGTH = 50
 FULL_NAME_MAX_LENGTH = 100
 

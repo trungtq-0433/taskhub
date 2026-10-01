@@ -12,13 +12,10 @@ clean up after themselves. Slower, and the only place the durability of a
 write is actually established.
 """
 
-from collections.abc import AsyncGenerator
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-import pytest
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
-
-from app.models import Project, Tag, Task, User, task_bookmark
+from app.models import Project, Tag, Task, task_bookmark
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.schemas.tag import TagCreate
 from app.schemas.task import TaskCreate
@@ -26,25 +23,6 @@ from app.services.project import ProjectService
 from app.services.tag import TagService
 from app.services.task import TaskService
 from tests.factories import make_user
-
-
-@pytest.fixture
-async def committing_sessions(
-    _engine: AsyncEngine,
-) -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
-    """Real sessions that really commit, with the tables emptied afterwards."""
-    factory = async_sessionmaker(bind=_engine, expire_on_commit=False)
-    yield factory
-
-    async with factory() as cleanup:
-        # Task first: its FK to project is ON DELETE RESTRICT, so emptying
-        # `project` while a task still points at one is refused outright.
-        # Association rows go with the task through the database's cascade.
-        await cleanup.execute(delete(Task))
-        await cleanup.execute(delete(Project))
-        await cleanup.execute(delete(Tag))
-        await cleanup.execute(delete(User))
-        await cleanup.commit()
 
 
 async def test_create_survives_into_a_separate_session(

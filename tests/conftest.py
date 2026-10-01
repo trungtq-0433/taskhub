@@ -22,6 +22,7 @@ from tests.db import (
     create_database_if_absent,
     database_url_for_tests,
     migrate,
+    wipe_committed_rows,
 )
 
 
@@ -105,6 +106,23 @@ async def db_session(_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]
         async with factory() as session:
             yield session
         await connection.rollback()
+
+
+@pytest.fixture
+async def committing_sessions(
+    _engine: AsyncEngine,
+) -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
+    """Real sessions that really commit, with the tables emptied around the test.
+
+    Built like production (`app/core/database.py`): `autoflush=False`, so the
+    tests run in the flush mode the code ships with and a missing explicit
+    `flush()` fails here rather than in prod. Wiped before `yield` as well as
+    after, so rows left by a killed run cannot poison the next one.
+    """
+    factory = async_sessionmaker(bind=_engine, expire_on_commit=False, autoflush=False)
+    await wipe_committed_rows(factory)
+    yield factory
+    await wipe_committed_rows(factory)
 
 
 @pytest.fixture

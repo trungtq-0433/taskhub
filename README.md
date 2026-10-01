@@ -5,13 +5,17 @@ PostgreSQL, laid out in loosely coupled layers along DDD lines.
 
 > **Status:** projects and tags are full CRUD. Tasks are list and create only
 > under a project — no update or delete endpoint yet — plus a top-level list
-> across every project with `status`/`priority` filters, and a bookmark an
+> across every project with `status`/`priority` filters, a bookmark an
 > active logged-in user can add to any task (no un-bookmark, no listing
-> bookmarks back). Users register, log in with a JWT, and can read or update
-> their own profile; a public, read-only profile lookup stays open to anyone.
-> Admin and project-manager guards exist (`app/api/permissions.py`) but guard
-> no route yet. All of it sits on the same response contract, database wiring
-> and error handling, and all of it is exercised by tests.
+> bookmarks back), assigning a task to another active user (history recorded,
+> no read endpoint), and comments: any active user can add one, and its
+> author, an admin or the project's owner can delete it. Users register, log
+> in with a JWT, and can read or update their own profile; a public,
+> read-only profile lookup stays open to anyone. The admin and
+> project-manager guards (`app/api/permissions.py`) still guard no route; the
+> comment guard next to them guards the comment delete. All of it sits on the
+> same response contract, database wiring and error handling, and all of it
+> is exercised by tests.
 
 ## Stack
 
@@ -56,8 +60,9 @@ uv run uvicorn app.main:app --reload
 ```
 
 The API serves projects and tags (full CRUD), tasks nested under a project
-(list and create) plus a top-level task list across every project and a
-bookmark endpoint, user registration/login/profile management, and a public
+(list and create) plus a top-level task list across every project, a
+bookmark endpoint, task assignment, comment create and delete,
+user registration/login/profile management, and a public
 read-only profile lookup, all under `/api/v1`. Browse them at `/docs`, which
 also renders every error response each route can return. Those three doc
 routes are served everywhere except production.
@@ -186,7 +191,7 @@ neither appears in `UserRead`. Both are read from the database row on every
 request, never from the JWT, so a change takes effect on the account's very
 next request rather than waiting for the old token to expire. `POST
 /users/login` is unchanged: a disabled account can still obtain a token.
-Today only `POST /api/v1/tasks/{task_id}/bookmark` checks `is_active` (403
+Today the bookmark, assign and both comment routes check `is_active` (403
 `inactive-user`, via `ActiveUserDep`) — `GET`/`PUT /users/me` accept any valid
 token regardless of `is_active`.
 
@@ -200,7 +205,8 @@ UPDATE "user" SET is_active = false WHERE username = '...';  -- true to restore
 `project-manager-required` — a project with no owner is manageable by admins
 only) exist in `app/api/permissions.py` but guard no route yet: creating,
 updating or deleting a project or a tag is not actually protected by them
-today.
+today. `verify_comment_modifier` in the same file is wired, to the comment
+delete (see Tasks).
 
 ## Tasks
 
@@ -210,6 +216,9 @@ today.
 | `GET` | `/api/v1/projects/{project_id}/tasks` | One project's tasks, no filters. Public. `404` if the project does not exist. |
 | `POST` | `/api/v1/projects/{project_id}/tasks` | Create a task in a project. `priority` defaults to `medium`. |
 | `POST` | `/api/v1/tasks/{task_id}/bookmark` | Bookmark a task. Requires `Authorization: Bearer <token>` for an active account. |
+| `POST` | `/api/v1/tasks/{task_id}/assign` | Assign a task to a user: `{assignee_id}` → `200` with the `TaskRead`. Same token requirement. |
+| `POST` | `/api/v1/tasks/{task_id}/comments` | Comment on a task: `{content}` → `201` with the `CommentRead`. Same token requirement. |
+| `DELETE` | `/api/v1/tasks/{task_id}/comments/{comment_id}` | Delete a comment → `204`. Its author, an admin or the project's owner. |
 
 `GET /api/v1/tasks` takes `status` and `priority` as equality filters that
 combine with AND; either or both may be omitted. Both are case-insensitive —
@@ -258,6 +267,57 @@ the same task again is a `409` (`already-bookmarked`), not a silent no-op; an
 unknown task is `404` (`task-not-found`). There is no un-bookmark and no
 listing your bookmarks back yet — only the one `POST`.
 
+Assigning, commenting and deleting a comment all need the same token, for an
+account that is still active. `task_id`, `comment_id` and `assignee_id` on
+these routes are bounded to `1..2147483647`; an id outside that is a `422`
+(`validation`), not a `500`. The older routes keep an unbounded `int`.
+
+```bash
+curl -s -X POST localhost:8000/api/v1/tasks/1/assign -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"assignee_id": 2}'
+```
+
+Any active user can assign any task to any active user, themselves included —
+there is no owner or admin check. `200` returns the task as `TaskRead`, with
+its tags and the new assignee. An unknown task is `404` (`task-not-found`); an
+unknown assignee is `422` (`assignee-not-found`); a disabled one is `422`
+(`assignee-inactive`). `assignee_id` is required and cannot be `null`, so
+there is no unassign. Assigning the user the task already has is a `200`
+no-op that writes no history — checked before the assignee is looked up, so
+it stays `200` even if that user has since been disabled. Each real change
+inserts a `task_assignment` row (previous assignee, new assignee, who did it);
+there is no endpoint to read that history, only SQL. The task row is locked for
+the duration so two concurrent assigns cannot record the same previous
+assignee — see `docs/database.md`.
+
+Known inconsistency: `POST /projects/{project_id}/tasks` still accepts a
+disabled user as `assignee_id`, while assign refuses one.
+
+```bash
+curl -s -X POST localhost:8000/api/v1/tasks/1/comments -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"content": "Looks good"}'
+```
+
+`201` returns `{id, task_id, author, content, created_at, updated_at}` with
+`author` as the caller. `content` is trimmed and must be 1 to 5,000
+characters afterwards, so a blank one is `422`. The author comes from the
+token and the task from the path; an `author_id` in the body is ignored. An
+unknown task is `404` (`task-not-found`). `author` becomes `null` if the
+author's account is later removed; the comment stays.
+
+```bash
+curl -s -X DELETE localhost:8000/api/v1/tasks/1/comments/1 -H "Authorization: Bearer $TOKEN"
+```
+
+`204` with no body, and no undo. The checks run in this order: `401` for a
+missing or bad token, `403` (`inactive-user`) for a disabled account, `404`
+(`task-not-found`), `404` (`comment-not-found`, also when the comment exists
+but belongs to another task), then `403` (`comment-forbidden`) unless the
+caller is the comment's author, an admin or the owner of the task's project.
+No endpoint sets `project.owner_id`, so through the API only an admin or the
+author passes. A delete that loses a race with another delete is also a
+`comment-not-found`.
+
 ## Quality gate
 
 ```bash
@@ -276,3 +336,10 @@ separate `taskhub_test` database on first run and applies the migrations to it �
 your development data is never touched, and `TEST_DATABASE_URL` overrides the
 target. Each test runs inside a transaction that is rolled back afterwards, so
 tests cannot see each other's writes even when they commit.
+
+Two suites are the exception and commit for real, because a rolled-back
+transaction cannot show a missing `commit()` or hold two competing
+transactions: `tests/test_service_commits.py` and
+`tests/test_task_assign_concurrency.py`. Their `committing_sessions` fixture
+(`tests/conftest.py`) empties the tables before each test as well as after, so
+a killed run cannot poison the next one.

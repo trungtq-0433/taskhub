@@ -1,8 +1,9 @@
 """Role and ownership guards, layered on top of `ActiveUserDep`.
 
-Written per the brief but attached to no route in this PR (decision 19): the
-"no other endpoint changes" rule from the scope reset still holds. They exist
-so a later PR can wire them without inventing the shape.
+`verify_admin_role` and `verify_project_manager` are attached to no route
+(plan 260928 decision 19): they exist so a later PR can wire them without
+inventing the shape. `verify_comment_modifier` is wired to the comment delete
+route.
 
 `verify_admin_role` is a role check; `verify_project_manager` is a resource
 check and re-fetches the project through `ProjectServiceDep` — the same
@@ -17,9 +18,11 @@ from typing import Annotated
 from fastapi import Depends
 
 from app.api.auth import ActiveUserDep
+from app.api.params import IdPath
 from app.constants import UserRole
 from app.core.exceptions import ForbiddenError
-from app.models import Project, User
+from app.models import Comment, Project, User
+from app.services.comment import CommentServiceDep
 from app.services.project import ProjectServiceDep
 
 
@@ -33,6 +36,17 @@ def can_manage_project(user: User, project: Project) -> bool:
     if user.role == UserRole.ADMIN:
         return True
     return project.owner_id is not None and project.owner_id == user.id
+
+
+def can_modify_comment(user: User, comment: Comment, project: Project) -> bool:
+    """The comment's author, or whoever can manage its task's project.
+
+    The `is not None` mirrors `can_manage_project`: a comment whose author was
+    deleted has `author_id` of `None`, and an unsaved user's `id` is `None` too.
+    """
+    if comment.author_id is not None and comment.author_id == user.id:
+        return True
+    return can_manage_project(user, project)
 
 
 async def verify_admin_role(user: ActiveUserDep) -> User:
@@ -58,5 +72,20 @@ async def verify_project_manager(
     return user
 
 
+async def verify_comment_modifier(
+    task_id: IdPath, comment_id: IdPath, user: ActiveUserDep, comments: CommentServiceDep
+) -> Comment:
+    """404 before 403, so a caller who may not delete learns nothing about a
+    comment under another task. Returns the verified comment."""
+    comment, project = await comments.get_with_project(task_id, comment_id)
+    if not can_modify_comment(user, comment, project):
+        raise ForbiddenError(
+            "Only the comment's author, an administrator or the project's owner may do this.",
+            problem_type="comment-forbidden",
+        )
+    return comment
+
+
 AdminDep = Annotated[User, Depends(verify_admin_role)]
 ProjectManagerDep = Annotated[User, Depends(verify_project_manager)]
+CommentModifierDep = Annotated[Comment, Depends(verify_comment_modifier)]

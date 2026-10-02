@@ -12,10 +12,11 @@ from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass
 
 import pytest
-from sqlalchemy import insert, select, text, update
+from sqlalchemy import delete, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import Project, Task, task_assignment
+from app.core.exceptions import UnauthorizedError
+from app.models import Project, Task, User, task_assignment
 from app.repositories.task import TaskRepository
 from app.services.task import TaskService
 from tests.factories import make_user
@@ -156,3 +157,24 @@ async def test_a_held_assign_lock_does_not_block_a_bookmark_on_the_same_task(
         stack.push_async_callback(s2.close)
 
         await asyncio.wait_for(TaskService(s2).bookmark(seeded.task, user_id=seeded.b), 2)
+
+
+async def test_assign_reports_an_unauthorized_caller_when_the_caller_was_deleted(
+    committing_sessions: Factory, seeded: Seeded
+) -> None:
+    async with committing_sessions() as deleting:
+        await deleting.execute(delete(User).where(User.id == seeded.c))
+        await deleting.commit()
+
+    async with committing_sessions() as assigning:
+        with pytest.raises(UnauthorizedError) as raised:
+            await TaskService(assigning).assign(
+                seeded.task, assignee_id=seeded.b, assigned_by_id=seeded.c
+            )
+    assert raised.value.problem_type == "unauthorized"
+
+    async with committing_sessions() as reader:
+        task = await reader.get(Task, seeded.task)
+        assert task is not None
+        assert task.assignee_id == seeded.a
+    assert await _history(committing_sessions, seeded.task) == []

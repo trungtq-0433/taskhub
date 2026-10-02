@@ -8,7 +8,12 @@ from fastapi_pagination import Page, Params
 from sqlalchemy.exc import IntegrityError
 
 from app.core.database import SessionDep
-from app.core.exceptions import BusinessRuleError, ConflictError, NotFoundError
+from app.core.exceptions import (
+    BusinessRuleError,
+    ConflictError,
+    NotFoundError,
+    UnauthorizedError,
+)
 from app.models import Tag, Task, User
 from app.repositories.bookmark import BookmarkRepository, BookmarkRow
 from app.repositories.tag import TagRepository
@@ -131,8 +136,14 @@ class TaskService:
             await self._session.refresh(task, ["assignee", "tags"])
             await self._session.commit()
         except IntegrityError as exc:
-            # The assignee (or caller) was deleted between the lookup and the
-            # write; the FK says so at the flush or the insert.
+            await self._session.rollback()
+            cause = exc.orig.__cause__ if exc.orig is not None else None
+            constraint_name = getattr(cause, "constraint_name", None)
+            if constraint_name == "fk_task_assignment_assigned_by_id_user":
+                raise UnauthorizedError("Could not validate credentials.") from exc
+
+            # The assignee was deleted between the lookup and the write; the
+            # FK says so at the flush or the history insert.
             raise BusinessRuleError(
                 f"No user with id {assignee_id}.", problem_type="assignee-not-found"
             ) from exc

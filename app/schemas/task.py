@@ -7,7 +7,6 @@ from fastapi_filter.contrib.sqlalchemy import Filter
 from pydantic import Field
 
 from app.constants import (
-    MAX_ID,
     NAME_MIN_LENGTH,
     TASK_DESCRIPTION_MAX_LENGTH,
     TASK_MAX_TAGS,
@@ -16,7 +15,7 @@ from app.constants import (
     TaskStatus,
 )
 from app.models import Task
-from app.schemas.base import BaseSchema, CaseInsensitive
+from app.schemas.base import BaseSchema, CaseInsensitive, Id
 from app.schemas.tag import TagRead
 from app.schemas.user import UserSummary
 
@@ -63,7 +62,7 @@ class TaskAssign(BaseSchema):
     """Required and never `null`: there is no unassign. `task_id` comes from the
     path and `assigned_by_id` from the token, never from the body."""
 
-    assignee_id: int = Field(ge=1, le=MAX_ID)
+    assignee_id: Id
 
 
 class TaskRead(BaseSchema):

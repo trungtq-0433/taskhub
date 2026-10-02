@@ -12,8 +12,8 @@ from fastapi import Path, Query
 from fastapi_pagination import Params
 from pydantic import BaseModel, Field
 
-from app.constants import MAX_ID
 from app.core.handlers import PROBLEM_CONTENT
+from app.schemas.base import Id
 
 ErrorResponses = dict[int | str, dict[str, Any]]
 
@@ -63,7 +63,7 @@ class BoundedParams(Params):
     size: int = Query(50, ge=1, le=MAX_SIZE, description="Page size")
 
 
-IdPath = Annotated[int, Path(ge=1, le=MAX_ID)]
+IdPath = Annotated[Id, Path()]
 """A path id bounded to the `INTEGER` column range: past 2**31-1 the value
 reaches asyncpg and comes back a 500, not a 422. New routes only; the older
 routes keep an unbounded `int`."""

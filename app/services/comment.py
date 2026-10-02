@@ -14,17 +14,23 @@ from app.core.exceptions import NotFoundError
 from app.models import Comment, Project, User
 from app.repositories.comment import CommentRepository
 from app.schemas.comment import CommentCreate
-from app.services.project import ProjectService
-from app.services.task import TaskService
+from app.services.project import ProjectService, ProjectServiceDep
+from app.services.task import TaskService, TaskServiceDep
 
 
 class CommentService:
-    def __init__(self, session: SessionDep) -> None:
+    def __init__(
+        self,
+        session: SessionDep,
+        *,
+        tasks: TaskService,
+        projects: ProjectService,
+    ) -> None:
         self._session = session
         self._comments = CommentRepository(session)
         # Composed so each 404 keeps its one owner and its one slug.
-        self._tasks = TaskService(session)
-        self._projects = ProjectService(session)
+        self._tasks = tasks
+        self._projects = projects
 
     async def create(self, task_id: int, payload: CommentCreate, *, author: User) -> Comment:
         await self._tasks.get(task_id)
@@ -59,9 +65,11 @@ class CommentService:
         )
 
 
-async def get_comment_service(session: SessionDep) -> CommentService:
+async def get_comment_service(
+    session: SessionDep, tasks: TaskServiceDep, projects: ProjectServiceDep
+) -> CommentService:
     """Built on the event loop — see `get_project_service` for why."""
-    return CommentService(session)
+    return CommentService(session, tasks=tasks, projects=projects)
 
 
 CommentServiceDep = Annotated[CommentService, Depends(get_comment_service)]

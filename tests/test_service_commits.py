@@ -160,9 +160,9 @@ async def test_comment_create_and_delete_survive_into_a_separate_session(
         await writing.commit()
         project = await ProjectService(writing).create(ProjectCreate(name="Durable comments"))
         task = await TaskService(writing).create(project.id, TaskCreate(title="Comment target"))
-        comment = await CommentService(writing).create(
-            task.id, CommentCreate(content="durable"), author=author
-        )
+        comment = await CommentService(
+            writing, tasks=TaskService(writing), projects=ProjectService(writing)
+        ).create(task.id, CommentCreate(content="durable"), author=author)
 
     async with committing_sessions() as reading:
         found = await reading.get(Comment, comment.id)
@@ -170,7 +170,9 @@ async def test_comment_create_and_delete_survive_into_a_separate_session(
     assert found.content == "durable"
 
     async with committing_sessions() as deleting:
-        service = CommentService(deleting)
+        service = CommentService(
+            deleting, tasks=TaskService(deleting), projects=ProjectService(deleting)
+        )
         loaded, _ = await service.get_with_project(task.id, comment.id)
         await service.delete(task_id=loaded.task_id, comment_id=loaded.id)
 

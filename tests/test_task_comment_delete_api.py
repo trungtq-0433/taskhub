@@ -15,6 +15,8 @@ from app.constants import UserRole
 from app.core.exceptions import NotFoundError
 from app.models import Comment, Project, Task, User
 from app.services.comment import CommentService
+from app.services.project import ProjectService
+from app.services.task import TaskService
 from tests.factories import auth_headers, make_user
 
 
@@ -170,7 +172,9 @@ async def test_a_delete_that_finds_the_row_already_gone_is_comment_not_found(
 ) -> None:
     """The race branch: the dependency's read passed, then the row vanished."""
     _, _, task, comment = await seed_comment(db_session)
-    service = CommentService(db_session)
+    service = CommentService(
+        db_session, tasks=TaskService(db_session), projects=ProjectService(db_session)
+    )
 
     await service.delete(task_id=task.id, comment_id=comment.id)
     with pytest.raises(NotFoundError) as raised:

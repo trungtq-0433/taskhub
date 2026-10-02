@@ -30,10 +30,9 @@ def assign_url(task_id: int) -> str:
     return f"/api/v1/tasks/{task_id}/assign"
 
 
-async def _history(session: AsyncSession, task_id: int) -> list[tuple[int | None, int, int]]:
+async def _history(session: AsyncSession, task_id: int) -> list[tuple[int, int]]:
     rows = await session.execute(
         select(
-            task_assignment.c.previous_assignee_id,
             task_assignment.c.assignee_id,
             task_assignment.c.assigned_by_id,
         )
@@ -60,7 +59,7 @@ async def test_any_active_user_can_assign_a_task_and_gets_200_with_the_new_assig
     assert [tag["name"] for tag in body["tags"]] == ["urgent"]
 
 
-async def test_assigning_records_one_history_row_with_the_previous_assignee_and_the_caller(
+async def test_assigning_records_one_history_row_with_the_new_assignee_and_the_caller(
     db_session: AsyncSession, api_client: AsyncClient
 ) -> None:
     task, users = await _seed(db_session)
@@ -71,24 +70,7 @@ async def test_assigning_records_one_history_row_with_the_previous_assignee_and_
         headers=auth_headers(users["carol"]),
     )
 
-    assert await _history(db_session, task.id) == [
-        (users["alice"].id, users["bob"].id, users["carol"].id)
-    ]
-
-
-async def test_assigning_an_unassigned_task_records_a_null_previous_assignee(
-    db_session: AsyncSession, api_client: AsyncClient
-) -> None:
-    task, users = await _seed(db_session, assigned_to=None)
-
-    response = await api_client.post(
-        assign_url(task.id),
-        json={"assignee_id": users["bob"].id},
-        headers=auth_headers(users["carol"]),
-    )
-
-    assert response.status_code == HTTPStatus.OK
-    assert await _history(db_session, task.id) == [(None, users["bob"].id, users["carol"].id)]
+    assert await _history(db_session, task.id) == [(users["bob"].id, users["carol"].id)]
 
 
 async def test_a_user_can_assign_a_task_to_themselves(
@@ -104,9 +86,7 @@ async def test_a_user_can_assign_a_task_to_themselves(
 
     assert response.status_code == HTTPStatus.OK
     assert response.json()["assignee"]["id"] == users["bob"].id
-    assert await _history(db_session, task.id) == [
-        (users["alice"].id, users["bob"].id, users["bob"].id)
-    ]
+    assert await _history(db_session, task.id) == [(users["bob"].id, users["bob"].id)]
 
 
 async def test_assigning_the_current_assignee_again_is_200_with_no_new_history_row(

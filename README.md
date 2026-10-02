@@ -285,10 +285,10 @@ unknown assignee is `422` (`assignee-not-found`); a disabled one is `422`
 there is no unassign. Assigning the user the task already has is a `200`
 no-op that writes no history — checked before the assignee is looked up, so
 it stays `200` even if that user has since been disabled. Each real change
-inserts a `task_assignment` row (previous assignee, new assignee, who did it);
+inserts a `task_assignment` row (new assignee, who did it);
 there is no endpoint to read that history, only SQL. The task row is locked for
-the duration so two concurrent assigns cannot record the same previous
-assignee — see `docs/database.md`.
+the duration so two concurrent assigns to the same user record one change,
+not two — see `docs/database.md`.
 
 Known inconsistency: `POST /projects/{project_id}/tasks` still accepts a
 disabled user as `assignee_id`, while assign refuses one.

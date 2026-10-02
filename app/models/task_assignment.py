@@ -7,12 +7,9 @@ is the transaction's start time, and a transaction that waited on the task row
 lock started before the one it waited for, so ordering by it could invert the
 chain.
 
-`previous_assignee_id` is trustworthy only because the writer holds a row lock
-on the task while it reads the old value and inserts this row.
-
 `assigned_by_id` is `RESTRICT` and NOT NULL: it is the only record of who made
 the change, so deleting that user must be refused rather than anonymize it.
-The two assignee columns are `SET NULL`: removing a user never deletes someone
+`assignee_id` is `SET NULL`: removing a user never deletes someone
 else's history row. `task_id` is `CASCADE`: history has no meaning without the
 task. A Core `Column` is nullable by default, hence the explicit `nullable=False`.
 
@@ -30,7 +27,6 @@ task_assignment = Table(
     Base.metadata,
     Column("id", Integer, primary_key=True),
     Column("task_id", ForeignKey("task.id", ondelete="CASCADE"), nullable=False, index=True),
-    Column("previous_assignee_id", ForeignKey("user.id", ondelete="SET NULL"), index=True),
     Column("assignee_id", ForeignKey("user.id", ondelete="SET NULL"), index=True),
     Column(
         "assigned_by_id", ForeignKey("user.id", ondelete="RESTRICT"), nullable=False, index=True

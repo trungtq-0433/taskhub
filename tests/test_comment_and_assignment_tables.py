@@ -30,7 +30,6 @@ async def _seed(session: AsyncSession) -> tuple[Task, User, User]:
     await session.execute(
         insert(task_assignment).values(
             task_id=task.id,
-            previous_assignee_id=x.id,
             assignee_id=x.id,
             assigned_by_id=y.id,
         )
@@ -68,14 +67,13 @@ async def test_deleting_a_mere_assignee_or_author_nulls_the_reference_and_keeps_
     row = (
         await db_session.execute(
             select(
-                task_assignment.c.previous_assignee_id,
                 task_assignment.c.assignee_id,
                 task_assignment.c.assigned_by_id,
             ).where(task_assignment.c.task_id == task.id)
         )
     ).one()
     assert author_id is None
-    assert (row.previous_assignee_id, row.assignee_id, row.assigned_by_id) == (None, None, y.id)
+    assert (row.assignee_id, row.assigned_by_id) == (None, y.id)
 
 
 async def test_a_user_who_assigned_a_task_cannot_be_deleted_while_that_history_exists(

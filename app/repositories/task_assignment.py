@@ -18,7 +18,6 @@ class TaskAssignmentRepository:
         self,
         *,
         task_id: int,
-        previous_assignee_id: int | None,
         assignee_id: int,
         assigned_by_id: int,
     ) -> None:
@@ -28,7 +27,6 @@ class TaskAssignmentRepository:
         await self._session.execute(
             insert(task_assignment).values(
                 task_id=task_id,
-                previous_assignee_id=previous_assignee_id,
                 assignee_id=assignee_id,
                 assigned_by_id=assigned_by_id,
             )

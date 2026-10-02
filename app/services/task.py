@@ -121,12 +121,10 @@ class TaskService:
                     raise BusinessRuleError(
                         f"User {assignee_id} is disabled.", problem_type="assignee-inactive"
                     )
-                previous = task.assignee_id
                 task.assignee = assignee
                 await self._session.flush()  # autoflush is off: UPDATE before the INSERT
                 await self._assignments.add(
                     task_id=task_id,
-                    previous_assignee_id=previous,
                     assignee_id=assignee_id,
                     assigned_by_id=assigned_by_id,
                 )

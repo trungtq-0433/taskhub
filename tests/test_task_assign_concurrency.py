@@ -1,5 +1,6 @@
-"""Two assigns on one task, on real connections: the row lock is what keeps
-`previous_assignee_id` true.
+"""Two assigns to the same user, on real connections: the row lock is what
+makes the second one see the first and record nothing (one real change, one
+history row).
 
 `db_session` cannot hold two transactions (one connection, savepoints), so
 these use `committing_sessions`. Ordering is proven from server state
@@ -70,10 +71,10 @@ async def _cancel_and_wait(task: "asyncio.Task[Task]") -> None:
         await task
 
 
-async def _history(factory: Factory, task_id: int) -> list[tuple[int | None, int | None]]:
+async def _history(factory: Factory, task_id: int) -> list[tuple[int | None, int]]:
     async with factory() as reader:
         rows = await reader.execute(
-            select(task_assignment.c.previous_assignee_id, task_assignment.c.assignee_id)
+            select(task_assignment.c.assignee_id, task_assignment.c.assigned_by_id)
             .where(task_assignment.c.task_id == task_id)
             .order_by(task_assignment.c.id)
         )
@@ -92,12 +93,11 @@ async def _hold_lock(
     return s1, holder_pid
 
 
-async def _write_a_to_b_by_hand(s1: AsyncSession, seeded: Seeded) -> None:
+async def _assign_to_b_by_hand(s1: AsyncSession, seeded: Seeded) -> None:
     await s1.execute(update(Task).where(Task.id == seeded.task).values(assignee_id=seeded.b))
     await s1.execute(
         insert(task_assignment).values(
             task_id=seeded.task,
-            previous_assignee_id=seeded.a,
             assignee_id=seeded.b,
             assigned_by_id=seeded.a,
         )
@@ -105,7 +105,9 @@ async def _write_a_to_b_by_hand(s1: AsyncSession, seeded: Seeded) -> None:
     await s1.commit()
 
 
-async def _run_chain(committing_sessions: Factory, seeded: Seeded, *, preload: bool) -> None:
+async def _run_duplicate_assign(
+    committing_sessions: Factory, seeded: Seeded, *, preload: bool
+) -> None:
     async with asyncio.timeout(15), AsyncExitStack() as stack:
         s1, holder_pid = await _hold_lock(stack, committing_sessions, seeded.task)
         s2, observer = committing_sessions(), committing_sessions()
@@ -117,34 +119,32 @@ async def _run_chain(committing_sessions: Factory, seeded: Seeded, *, preload: b
             preloaded = await s2.get(Task, seeded.task)
             assert preloaded is not None and preloaded.assignee_id == seeded.a
         tx2 = asyncio.create_task(
-            TaskService(s2).assign(seeded.task, assignee_id=seeded.c, assigned_by_id=seeded.b)
+            TaskService(s2).assign(seeded.task, assignee_id=seeded.b, assigned_by_id=seeded.c)
         )
         stack.push_async_callback(_cancel_and_wait, tx2)
 
         await _wait_until_blocked(observer, holder_pid, tx2)
         assert not tx2.done()
 
-        await _write_a_to_b_by_hand(s1, seeded)
+        await _assign_to_b_by_hand(s1, seeded)
         result = await asyncio.wait_for(tx2, 5)
 
-        assert await _history(committing_sessions, seeded.task) == [
-            (seeded.a, seeded.b),
-            (seeded.b, seeded.c),
-        ]
+        # tx2 saw the committed B and no-opped: only s1's row exists.
+        assert await _history(committing_sessions, seeded.task) == [(seeded.b, seeded.a)]
         assert result.assignee is not None
-        assert result.assignee.id == seeded.c
+        assert result.assignee.id == seeded.b
 
 
-async def test_a_second_assign_waits_for_the_row_lock_and_chains_off_the_first(
+async def test_a_second_assign_to_the_same_user_waits_for_the_lock_and_records_no_second_row(
     committing_sessions: Factory, seeded: Seeded
 ) -> None:
-    await _run_chain(committing_sessions, seeded, preload=False)
+    await _run_duplicate_assign(committing_sessions, seeded, preload=False)
 
 
-async def test_a_task_already_loaded_in_the_session_still_reads_the_locked_assignee(
+async def test_a_preloaded_task_is_refreshed_under_the_lock_so_the_duplicate_assign_is_a_no_op(
     committing_sessions: Factory, seeded: Seeded
 ) -> None:
-    await _run_chain(committing_sessions, seeded, preload=True)
+    await _run_duplicate_assign(committing_sessions, seeded, preload=True)
 
 
 async def test_a_held_assign_lock_does_not_block_a_bookmark_on_the_same_task(

@@ -3,10 +3,15 @@
 from fastapi import APIRouter, status
 
 from app.api.auth import ActiveUserDep
-from app.api.params import ErrorResponses, IdPath, not_found
+from app.api.params import (
+    INACTIVE_USER,
+    TASK_NOT_FOUND,
+    UNAUTHORIZED,
+    ErrorResponses,
+    IdPath,
+    not_found,
+)
 from app.api.permissions import CommentModifierDep
-from app.api.routers.tasks import INACTIVE_USER, TASK_NOT_FOUND
-from app.api.routers.users import UNAUTHORIZED
 from app.core.handlers import PROBLEM_CONTENT
 from app.schemas.comment import CommentCreate, CommentRead
 from app.services.comment import CommentServiceDep

@@ -79,3 +79,12 @@ def not_found(resource: str) -> ErrorResponses:
     the route cannot fail that way.
     """
     return {404: {"content": PROBLEM_CONTENT, "description": f"No such {resource}"}}
+
+
+UNAUTHORIZED: ErrorResponses = {
+    401: {"content": PROBLEM_CONTENT, "description": "Missing or invalid credentials"}
+}
+INACTIVE_USER: ErrorResponses = {
+    403: {"content": PROBLEM_CONTENT, "description": "This account is disabled"}
+}
+TASK_NOT_FOUND = not_found("task")

@@ -13,8 +13,15 @@ from fastapi_filter import FilterDepends
 from fastapi_pagination import Page as LibraryPage
 
 from app.api.auth import ActiveUserDep
-from app.api.params import BoundedParams, ErrorResponses, IdPath, not_found
-from app.api.routers.users import UNAUTHORIZED
+from app.api.params import (
+    INACTIVE_USER,
+    TASK_NOT_FOUND,
+    UNAUTHORIZED,
+    BoundedParams,
+    ErrorResponses,
+    IdPath,
+    not_found,
+)
 from app.core.handlers import PROBLEM_CONTENT
 from app.schemas.task import BookmarkRead, TaskAssign, TaskCreate, TaskFilter, TaskRead
 from app.services.task import TaskServiceDep
@@ -25,12 +32,8 @@ router = APIRouter(tags=["tasks"])
 # holds none answers 200 with an empty page. Only a project that does not
 # exist answers 404 — an empty list there would claim it exists.
 PROJECT_NOT_FOUND = not_found("project")
-TASK_NOT_FOUND = not_found("task")
 ALREADY_BOOKMARKED: ErrorResponses = {
     409: {"content": PROBLEM_CONTENT, "description": "Already bookmarked by this user"}
-}
-INACTIVE_USER: ErrorResponses = {
-    403: {"content": PROBLEM_CONTENT, "description": "This account is disabled"}
 }
 
 

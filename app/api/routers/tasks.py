@@ -35,6 +35,9 @@ PROJECT_NOT_FOUND = not_found("project")
 ALREADY_BOOKMARKED: ErrorResponses = {
     409: {"content": PROBLEM_CONTENT, "description": "Already bookmarked by this user"}
 }
+ASSIGNMENT_CONFLICT: ErrorResponses = {
+    409: {"content": PROBLEM_CONTENT, "description": "A user was deleted mid-request; retry"}
+}
 
 
 # The handler docstrings below are published as each operation's description in
@@ -133,7 +136,7 @@ async def bookmark_task(
 @router.post(
     "/tasks/{task_id}/assign",
     summary="Assign a task to a user",
-    responses={**UNAUTHORIZED, **INACTIVE_USER, **TASK_NOT_FOUND},
+    responses={**UNAUTHORIZED, **INACTIVE_USER, **TASK_NOT_FOUND, **ASSIGNMENT_CONFLICT},
 )
 async def assign_task(
     task_id: IdPath,

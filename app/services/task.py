@@ -12,7 +12,6 @@ from app.core.exceptions import (
     BusinessRuleError,
     ConflictError,
     NotFoundError,
-    UnauthorizedError,
 )
 from app.models import Tag, Task, User
 from app.repositories.bookmark import BookmarkRepository, BookmarkRow
@@ -136,16 +135,14 @@ class TaskService:
             await self._session.refresh(task, ["assignee", "tags"])
             await self._session.commit()
         except IntegrityError as exc:
+            # The assignee or the caller was deleted between the lookup and the
+            # write; the FK says so at the flush or the history insert. Rolled
+            # back here so the row lock goes now, not at request teardown. A
+            # retry gets the precise answer: 422 for the assignee, 401 for the caller.
             await self._session.rollback()
-            cause = exc.orig.__cause__ if exc.orig is not None else None
-            constraint_name = getattr(cause, "constraint_name", None)
-            if constraint_name == "fk_task_assignment_assigned_by_id_user":
-                raise UnauthorizedError("Could not validate credentials.") from exc
-
-            # The assignee was deleted between the lookup and the write; the
-            # FK says so at the flush or the history insert.
-            raise BusinessRuleError(
-                f"No user with id {assignee_id}.", problem_type="assignee-not-found"
+            raise ConflictError(
+                "Assignment could not be completed because related user data changed.",
+                problem_type="assignment-conflict",
             ) from exc
         return task
 

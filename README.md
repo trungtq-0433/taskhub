@@ -281,7 +281,9 @@ Any active user can assign any task to any active user, themselves included —
 there is no owner or admin check. `200` returns the task as `TaskRead`, with
 its tags and the new assignee. An unknown task is `404` (`task-not-found`); an
 unknown assignee is `422` (`assignee-not-found`); a disabled one is `422`
-(`assignee-inactive`). `assignee_id` is required and cannot be `null`, so
+(`assignee-inactive`). If a user is deleted while the assign is in flight, it is
+`409` (`assignment-conflict`) and nothing is written — a retry then gets the
+precise answer. `assignee_id` is required and cannot be `null`, so
 there is no unassign. Assigning the user the task already has is a `200`
 no-op that writes no history — checked before the assignee is looked up, so
 it stays `200` even if that user has since been disabled. Each real change

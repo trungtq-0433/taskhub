@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import delete, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.exceptions import UnauthorizedError
+from app.core.exceptions import ConflictError
 from app.models import Project, Task, User, task_assignment
 from app.repositories.task import TaskRepository
 from app.services.task import TaskService
@@ -159,7 +159,7 @@ async def test_a_held_assign_lock_does_not_block_a_bookmark_on_the_same_task(
         await asyncio.wait_for(TaskService(s2).bookmark(seeded.task, user_id=seeded.b), 2)
 
 
-async def test_assign_reports_an_unauthorized_caller_when_the_caller_was_deleted(
+async def test_assign_reports_a_conflict_when_the_caller_was_deleted_mid_request(
     committing_sessions: Factory, seeded: Seeded
 ) -> None:
     async with committing_sessions() as deleting:
@@ -167,11 +167,11 @@ async def test_assign_reports_an_unauthorized_caller_when_the_caller_was_deleted
         await deleting.commit()
 
     async with committing_sessions() as assigning:
-        with pytest.raises(UnauthorizedError) as raised:
+        with pytest.raises(ConflictError) as raised:
             await TaskService(assigning).assign(
                 seeded.task, assignee_id=seeded.b, assigned_by_id=seeded.c
             )
-    assert raised.value.problem_type == "unauthorized"
+    assert raised.value.problem_type == "assignment-conflict"
 
     async with committing_sessions() as reader:
         task = await reader.get(Task, seeded.task)

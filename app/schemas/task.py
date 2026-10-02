@@ -15,7 +15,7 @@ from app.constants import (
     TaskStatus,
 )
 from app.models import Task
-from app.schemas.base import BaseSchema, CaseInsensitive
+from app.schemas.base import BaseSchema, CaseInsensitive, Id
 from app.schemas.tag import TagRead
 from app.schemas.user import UserSummary
 
@@ -56,6 +56,13 @@ class TaskCreate(BaseSchema):
     # Capped: this list becomes an `IN` clause, and an unbounded one is an
     # unbounded query built from client input.
     tag_ids: list[int] = Field(default_factory=list, max_length=TASK_MAX_TAGS)
+
+
+class TaskAssign(BaseSchema):
+    """Required and never `null`: there is no unassign. `task_id` comes from the
+    path and `assigned_by_id` from the token, never from the body."""
+
+    assignee_id: Id
 
 
 class TaskRead(BaseSchema):

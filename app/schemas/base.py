@@ -7,9 +7,14 @@ pagination counts, so they use `Page[T]` rather than a bare list.
 """
 
 from math import ceil
-from typing import Any, Self
+from typing import Annotated, Any, Self
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+from app.constants import MAX_ID
+
+Id = Annotated[int, Field(ge=1, le=MAX_ID)]
+"""A database integer identifier accepted from an API request."""
 
 
 class BaseSchema(BaseModel):

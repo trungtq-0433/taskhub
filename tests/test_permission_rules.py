@@ -1,13 +1,13 @@
-"""`can_manage_project` in isolation — pure, no HTTP, no database.
+"""`can_manage_project` and `can_modify_comment` in isolation — pure, no HTTP, no database.
 
 Every object here is unsaved. That is the point: the rule has to be correct
 before a session or a request ever exists, or the guarded routes that call it
 would be the first place it gets exercised.
 """
 
-from app.api.permissions import can_manage_project
+from app.api.permissions import can_manage_project, can_modify_comment
 from app.constants import UserRole
-from app.models import Project, User
+from app.models import Comment, Project, User
 from tests.factories import make_user
 
 
@@ -50,3 +50,38 @@ def test_ordinary_user_cannot_manage_an_ownerless_project() -> None:
     user who was never flushed would "own" every ownerless project."""
     user = _user("member-user", user_id=None)
     assert can_manage_project(user, _project(owner_id=None)) is False
+
+
+def _comment(*, author_id: int | None) -> Comment:
+    return Comment(task_id=1, content="note", author_id=author_id)
+
+
+def test_author_can_modify_their_own_comment() -> None:
+    author = _user("comment-author", user_id=5)
+    assert can_modify_comment(author, _comment(author_id=5), _project(owner_id=1)) is True
+
+
+def test_admin_can_modify_anyones_comment() -> None:
+    admin = _user("comment-admin", user_id=99, role=UserRole.ADMIN)
+    assert can_modify_comment(admin, _comment(author_id=5), _project(owner_id=1)) is True
+
+
+def test_the_projects_owner_can_modify_a_comment_on_its_task() -> None:
+    owner = _user("comment-owner", user_id=1)
+    assert can_modify_comment(owner, _comment(author_id=5), _project(owner_id=1)) is True
+
+
+def test_another_user_cannot_modify_it() -> None:
+    other = _user("comment-other", user_id=2)
+    assert can_modify_comment(other, _comment(author_id=5), _project(owner_id=1)) is False
+
+
+def test_an_unsaved_user_cannot_modify_a_comment_whose_author_was_deleted() -> None:
+    """The `is not None` guard: `None == None` must not make an author."""
+    user = _user("comment-unsaved", user_id=None)
+    assert can_modify_comment(user, _comment(author_id=None), _project(owner_id=1)) is False
+
+
+def test_an_ordinary_user_cannot_modify_an_authorless_comment_on_an_ownerless_project() -> None:
+    user = _user("comment-ordinary", user_id=7)
+    assert can_modify_comment(user, _comment(author_id=None), _project(owner_id=None)) is False

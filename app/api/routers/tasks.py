@@ -1,4 +1,4 @@
-"""Task endpoints: nested list/create, the top-level list, and the bookmark.
+"""Task endpoints: nested list/create, the top-level list, the bookmark and assign.
 
 One module rather than one file per route: the nested route's prefix is
 dropped so the top-level `/tasks` and `/tasks/{task_id}/bookmark` can sit
@@ -13,10 +13,17 @@ from fastapi_filter import FilterDepends
 from fastapi_pagination import Page as LibraryPage
 
 from app.api.auth import ActiveUserDep
-from app.api.params import BoundedParams, ErrorResponses, not_found
-from app.api.routers.users import UNAUTHORIZED
+from app.api.params import (
+    INACTIVE_USER,
+    TASK_NOT_FOUND,
+    UNAUTHORIZED,
+    BoundedParams,
+    ErrorResponses,
+    IdPath,
+    not_found,
+)
 from app.core.handlers import PROBLEM_CONTENT
-from app.schemas.task import BookmarkRead, TaskCreate, TaskFilter, TaskRead
+from app.schemas.task import BookmarkRead, TaskAssign, TaskCreate, TaskFilter, TaskRead
 from app.services.task import TaskServiceDep
 
 router = APIRouter(tags=["tasks"])
@@ -25,12 +32,11 @@ router = APIRouter(tags=["tasks"])
 # holds none answers 200 with an empty page. Only a project that does not
 # exist answers 404 — an empty list there would claim it exists.
 PROJECT_NOT_FOUND = not_found("project")
-TASK_NOT_FOUND = not_found("task")
 ALREADY_BOOKMARKED: ErrorResponses = {
     409: {"content": PROBLEM_CONTENT, "description": "Already bookmarked by this user"}
 }
-INACTIVE_USER: ErrorResponses = {
-    403: {"content": PROBLEM_CONTENT, "description": "This account is disabled"}
+ASSIGNMENT_CONFLICT: ErrorResponses = {
+    409: {"content": PROBLEM_CONTENT, "description": "A user was deleted mid-request; retry"}
 }
 
 
@@ -125,3 +131,23 @@ async def bookmark_task(
     a caller cannot bookmark on someone else's behalf.
     """
     return BookmarkRead.model_validate(await service.bookmark(task_id, user_id=user.id))
+
+
+@router.post(
+    "/tasks/{task_id}/assign",
+    summary="Assign a task to a user",
+    responses={**UNAUTHORIZED, **INACTIVE_USER, **TASK_NOT_FOUND, **ASSIGNMENT_CONFLICT},
+)
+async def assign_task(
+    task_id: IdPath,
+    payload: TaskAssign,
+    user: ActiveUserDep,
+    service: TaskServiceDep,
+) -> TaskRead:
+    """Any active user may assign any task to any active user, themselves
+    included. Assigning the current assignee again is a 200 no-op. There is no
+    unassign: `assignee_id` is required.
+    """
+    return TaskRead.model_validate(
+        await service.assign(task_id, assignee_id=payload.assignee_id, assigned_by_id=user.id)
+    )

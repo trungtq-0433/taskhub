@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.api.auth import CurrentUserDep
-from app.api.params import ErrorResponses, not_found
+from app.api.params import UNAUTHORIZED, ErrorResponses, not_found
 from app.core.handlers import PROBLEM_CONTENT
 from app.schemas.profile import UserProfile
 from app.schemas.user import Token, UserRead, UserRegister, UserUpdate
@@ -17,9 +17,6 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 USERNAME_TAKEN: ErrorResponses = {
     409: {"content": PROBLEM_CONTENT, "description": "Username already taken"}
-}
-UNAUTHORIZED: ErrorResponses = {
-    401: {"content": PROBLEM_CONTENT, "description": "Missing or invalid credentials"}
 }
 
 

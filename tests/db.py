@@ -10,11 +10,12 @@ import os
 import subprocess
 from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import delete, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.models import Project, Tag, Task, User
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -96,3 +97,20 @@ def migrate(url: str) -> None:
         env={**os.environ, "DATABASE_URL": url},
         check=True,
     )
+
+
+async def wipe_committed_rows(factory: async_sessionmaker[AsyncSession]) -> None:
+    """Empty every table a committing test can write to.
+
+    Task first: its FK to project is ON DELETE RESTRICT, and
+    `task_assignment.assigned_by_id` is RESTRICT on user, so deleting a user
+    who assigned a task is refused until the task — and with it the history
+    and comment rows, through the database's cascade — is gone. Hence the
+    order is Task, Project, Tag, User.
+    """
+    async with factory() as cleanup:
+        await cleanup.execute(delete(Task))
+        await cleanup.execute(delete(Project))
+        await cleanup.execute(delete(Tag))
+        await cleanup.execute(delete(User))
+        await cleanup.commit()

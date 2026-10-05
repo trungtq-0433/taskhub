@@ -12,39 +12,19 @@ clean up after themselves. Slower, and the only place the durability of a
 write is actually established.
 """
 
-from collections.abc import AsyncGenerator
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-import pytest
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
-
-from app.models import Project, Tag, Task, User, task_bookmark
+from app.models import Comment, Project, Tag, Task, task_assignment, task_bookmark
+from app.schemas.comment import CommentCreate
 from app.schemas.project import ProjectCreate, ProjectUpdate
 from app.schemas.tag import TagCreate
 from app.schemas.task import TaskCreate
+from app.services.comment import CommentService
 from app.services.project import ProjectService
 from app.services.tag import TagService
 from app.services.task import TaskService
 from tests.factories import make_user
-
-
-@pytest.fixture
-async def committing_sessions(
-    _engine: AsyncEngine,
-) -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
-    """Real sessions that really commit, with the tables emptied afterwards."""
-    factory = async_sessionmaker(bind=_engine, expire_on_commit=False)
-    yield factory
-
-    async with factory() as cleanup:
-        # Task first: its FK to project is ON DELETE RESTRICT, so emptying
-        # `project` while a task still points at one is refused outright.
-        # Association rows go with the task through the database's cascade.
-        await cleanup.execute(delete(Task))
-        await cleanup.execute(delete(Project))
-        await cleanup.execute(delete(Tag))
-        await cleanup.execute(delete(User))
-        await cleanup.commit()
 
 
 async def test_create_survives_into_a_separate_session(
@@ -144,3 +124,57 @@ async def test_bookmark_survives_into_a_separate_session(
         ).one_or_none()
 
     assert row is not None, "the bookmark did not outlive the session that wrote it"
+
+
+async def test_assign_survives_into_a_separate_session(
+    committing_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The assign use case ends in a real `commit()`, not just a flush."""
+    async with committing_sessions() as writing:
+        writing.add_all([old := make_user("commits-old"), new := make_user("commits-new")])
+        await writing.commit()
+        project = await ProjectService(writing).create(ProjectCreate(name="Durable assign holder"))
+        task = await TaskService(writing).create(
+            project.id, TaskCreate(title="Assign target", assignee_id=old.id)
+        )
+        await TaskService(writing).assign(task.id, assignee_id=new.id, assigned_by_id=old.id)
+
+    async with committing_sessions() as reading:
+        found = await reading.get(Task, task.id)
+        rows = (
+            await reading.execute(
+                select(task_assignment.c.assignee_id).where(task_assignment.c.task_id == task.id)
+            )
+        ).all()
+
+    assert found is not None
+    assert found.assignee_id == new.id, "the new assignee did not outlive the writing session"
+    assert [row.assignee_id for row in rows] == [new.id]
+
+
+async def test_comment_create_and_delete_survive_into_a_separate_session(
+    committing_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    async with committing_sessions() as writing:
+        writing.add(author := make_user("commits-commenter"))
+        await writing.commit()
+        project = await ProjectService(writing).create(ProjectCreate(name="Durable comments"))
+        task = await TaskService(writing).create(project.id, TaskCreate(title="Comment target"))
+        comment = await CommentService(
+            writing, tasks=TaskService(writing), projects=ProjectService(writing)
+        ).create(task.id, CommentCreate(content="durable"), author=author)
+
+    async with committing_sessions() as reading:
+        found = await reading.get(Comment, comment.id)
+    assert found is not None, "the comment did not outlive the session that wrote it"
+    assert found.content == "durable"
+
+    async with committing_sessions() as deleting:
+        service = CommentService(
+            deleting, tasks=TaskService(deleting), projects=ProjectService(deleting)
+        )
+        loaded, _ = await service.get_with_project(task.id, comment.id)
+        await service.delete(task_id=loaded.task_id, comment_id=loaded.id)
+
+    async with committing_sessions() as reading:
+        assert await reading.get(Comment, comment.id) is None, "the delete was not committed"

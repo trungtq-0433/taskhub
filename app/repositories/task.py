@@ -69,6 +69,22 @@ class TaskRepository:
     async def get(self, task_id: int) -> Task | None:
         return await self._session.get(Task, task_id)
 
+    async def get_for_update(self, task_id: int) -> Task | None:
+        """The task, row-locked `FOR NO KEY UPDATE` until the transaction ends.
+
+        The share-key flag makes it `NO KEY UPDATE`: plain `FOR UPDATE` conflicts with
+        the `FOR KEY SHARE` Postgres takes on `task` for every FK insert
+        (comments, bookmarks, history), so it would stall them; assigns still
+        serialize because `NO KEY UPDATE` conflicts with itself.
+        `populate_existing` is mandatory: without it a task already in the
+        identity map keeps its stale attributes and the locked value is never
+        read. The statement stays bare — a row lock cannot cover the nullable
+        side of the outer join that an eager `assignee` would add.
+        """
+        return await self._session.get(
+            Task, task_id, with_for_update={"key_share": True}, populate_existing=True
+        )
+
     async def count_for_project(self, project_id: int) -> int:
         """Serves `ProjectDetail.total_tasks` and the delete pre-check both."""
         total = await self._session.scalar(

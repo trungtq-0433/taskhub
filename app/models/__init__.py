@@ -7,11 +7,22 @@ DROPS the table, without erroring. Adding a model without adding it here is the
 classic way to lose data on the next `upgrade head`.
 """
 
+from app.models.comment import Comment
 from app.models.project import Project
 from app.models.tag import Tag
 from app.models.task import Task
+from app.models.task_assignment import task_assignment
 from app.models.task_bookmark import task_bookmark
 from app.models.task_tag import task_tag
 from app.models.user import User
 
-__all__ = ["Project", "Tag", "Task", "User", "task_bookmark", "task_tag"]
+__all__ = [
+    "Comment",
+    "Project",
+    "Tag",
+    "Task",
+    "User",
+    "task_assignment",
+    "task_bookmark",
+    "task_tag",
+]

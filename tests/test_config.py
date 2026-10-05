@@ -130,3 +130,9 @@ def test_the_smtp_password_never_shows_in_repr() -> None:
     assert "hunter2-secret" not in repr(cfg)
     assert cfg.smtp_password is not None
     assert cfg.smtp_password.get_secret_value() == "hunter2-secret"
+
+
+def test_redis_is_optional_and_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("REDIS_URL", raising=False)
+
+    assert _settings().redis_url is None

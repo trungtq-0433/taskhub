@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.database import dispose_engine
 from app.core.handlers import DEFAULT_ERROR_RESPONSES, register_exception_handlers
 from app.core.middleware import RequestIDMiddleware
+from app.core.redis import close_redis_client
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -28,6 +29,7 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Email notifications via %s:%d", settings.smtp_host, settings.smtp_port)
     yield
     await dispose_engine()
+    await close_redis_client()
     logger.info("Shutdown complete")
 
 

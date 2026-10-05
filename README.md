@@ -51,7 +51,8 @@ docker compose up --build
 
 This also starts [Mailpit](https://mailpit.axllent.org), a local mail catcher
 (SMTP on 1025, inbox at <http://localhost:8025>), and points the API at it, so
-mail the API sends shows up there. See Email notifications.
+mail the API sends shows up there. See Email notifications. It starts a Redis
+as well (6379) for the tag cache; see Tag cache.
 
 Against a local interpreter, with only the database in a container. Here
 `DATABASE_URL` **must** be filled in with real values — `.env.example` ships
@@ -67,7 +68,8 @@ uv run uvicorn app.main:app --reload
 
 Email is optional on this path: leave `SMTP_HOST` unset and none is sent. To
 see it, run `docker compose up -d mailpit` and set `SMTP_HOST=localhost` in
-`.env`.
+`.env`. The tag cache is optional the same way: leave `REDIS_URL` unset, or run
+`docker compose up -d redis` and set `REDIS_URL=redis://localhost:6379/0`.
 
 The API serves projects and tags (full CRUD), tasks nested under a project
 (list and create) plus a top-level task list across every project, a
@@ -367,6 +369,24 @@ only. Settings:
 | `SMTP_TIMEOUT` | `10` | Seconds to wait on the server. |
 | `MAIL_FROM` | `TaskHub <noreply@taskhub.local>` | |
 
+## Tag cache
+
+`GET /tags` is served from Redis when it can be, from Postgres when it cannot,
+and the response is byte for byte the same either way. Each page is stored
+under `tags:v{version}:p{page}:s{size}` for 300 seconds. `POST`, `PATCH` and
+`DELETE /tags` run `INCR tags:version` once their commit has succeeded, which
+orphans every stored page at once; a refused write (404, 409, 422) changes
+nothing. `GET /tags/{id}` is not cached.
+
+The cache fails open. A Redis that is down or slow (0.5 s timeouts, no
+retries) is logged at WARNING and skipped: reads go to Postgres and writes
+still succeed. The one cost is that a write whose `INCR` failed can leave the
+list stale until the TTL runs out.
+
+To run without it, leave `REDIS_URL` unset — no connection is ever attempted.
+The compose Redis has no password and is for local development only; in
+production supply your own `REDIS_URL`.
+
 ## Quality gate
 
 ```bash
@@ -392,6 +412,12 @@ asyncpg, and that client runs the app on a loop of its own, which cannot share
 the test's connection and its rolled-back transaction — FastAPI's "Async
 Tests" guide takes the same route. The Register → Create Task flow is
 `tests/test_register_and_create_task_flow.py`.
+
+The tag cache tests use a real Redis (`docker compose up -d redis`). They run
+against db 15 of the Redis in `REDIS_URL`, emptying it around each test, or
+against `TEST_REDIS_URL` when that is set; with neither set they fail naming
+both. They refuse to run on the database `REDIS_URL` itself points at. The
+suite otherwise ignores `REDIS_URL` from `.env`.
 
 Mail tests need no Mailpit: they override the `Mailer` with a recording one,
 and send through `SmtpMailer` to an in-process `aiosmtpd` server. The suite

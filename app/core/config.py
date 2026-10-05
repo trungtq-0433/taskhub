@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     smtp_timeout: float = Field(default=10, gt=0)
     mail_from: str = "TaskHub <noreply@taskhub.local>"
 
+    # --- Cache -------------------------------------------------------------
+    # Optional: with no REDIS_URL the tag list is read from Postgres every time.
+    # Redis is only ever a speed-up, so a Redis outage at runtime is logged and
+    # skipped, never an error. e.g. redis://localhost:6379/0
+    redis_url: str | None = None
+
     @field_validator("database_url", mode="after")
     @classmethod
     def _require_async_driver(cls, value: str) -> str:

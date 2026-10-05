@@ -14,7 +14,7 @@ on a guess. That is deliberate for anything environment-specific or secret.
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -69,6 +69,28 @@ class Settings(BaseSettings):
     # a `none`/RS256 downgrade mix-up.
     jwt_secret_key: str = Field(alias="JWT_SECRET_KEY", min_length=32)
     access_token_expire_minutes: int = Field(default=30, ge=1)
+
+    # --- Email -------------------------------------------------------------
+    # Optional, unlike the two above: with no SMTP_HOST the app runs and simply
+    # sends nothing (one INFO line at startup says so). Defaulting to a guessed
+    # server would mean production mailing into the void without a word, and CI
+    # would need a mail server it has no use for. For local development run
+    # Mailpit (`docker compose up -d mailpit`) and set SMTP_HOST=localhost.
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=1025, ge=1, le=65535)
+    smtp_username: str | None = None
+    # SecretStr so `repr(settings)`, or a log line that prints it, shows
+    # `**********` rather than the password.
+    smtp_password: SecretStr | None = None
+    # true: implicit TLS from the first byte (usually port 465). false: plain
+    # connection that upgrades with STARTTLS whenever the server offers it
+    # (usually 587), so credentials do not cross in the clear to a server that
+    # supports TLS. Mailpit offers neither, and stays plain.
+    smtp_use_tls: bool = False
+    # Explicit because aiosmtplib's own default is 60 s: a dead mail server
+    # must not hold a background task, and in tests the request, for a minute.
+    smtp_timeout: float = Field(default=10, gt=0)
+    mail_from: str = "TaskHub <noreply@taskhub.local>"
 
     @field_validator("database_url", mode="after")
     @classmethod

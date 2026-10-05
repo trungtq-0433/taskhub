@@ -1,6 +1,6 @@
 """Shared pytest fixtures."""
 
-from collections.abc import AsyncGenerator, Callable, Coroutine
+from collections.abc import AsyncGenerator, Callable, Coroutine, Iterator
 from typing import Any, Protocol
 
 import pytest
@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.api.permissions import AdminDep, ProjectManagerDep
+from app.core.config import settings
 from app.core.database import get_session
 from app.core.handlers import register_exception_handlers
 from app.main import app
@@ -37,6 +38,19 @@ class RouteClient(Protocol):
         params: dict[str, Any] | None = None,
         raise_server_exceptions: bool = True,
     ) -> Coroutine[Any, Any, Response]: ...
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _suite_ignores_outside_services() -> Iterator[None]:
+    """Keep the developer's `.env` from reaching real services during a run.
+
+    `SMTP_HOST=localhost` in `.env`, set to try Mailpit by hand, would
+    otherwise make every comment test send real mail. Tests that want mail
+    opt in through `app.dependency_overrides[get_mailer]`.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(settings, "smtp_host", None)
+        yield
 
 
 @pytest.fixture

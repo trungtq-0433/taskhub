@@ -23,6 +23,16 @@ services:
       timeout: 5s
       retries: 10
 
+  # Local mail catcher: accepts anything on 1025, shows it at http://localhost:8025.
+  # No auth and no delivery, so it is for development only.
+  mailpit:
+    image: axllent/mailpit:v1.21
+    container_name: taskhub-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
   api:
     build:
       context: .
@@ -32,11 +42,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql+asyncpg://taskhub:taskhub@db:5432/taskhub
       ENVIRONMENT: ${ENVIRONMENT:-local}
       DEBUG: ${DEBUG:-true}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:

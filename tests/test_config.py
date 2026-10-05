@@ -98,3 +98,35 @@ def test_password_special_characters_survive_normalisation() -> None:
 
     assert "@db.internal" in dsn
     assert make_url(dsn).password == "p@ss/w#rd"
+
+
+def test_smtp_is_optional_and_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `_settings` ignores .env but not the process environment.
+    for name in ("SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_USE_TLS"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("SMTP_TIMEOUT", raising=False)
+    monkeypatch.delenv("MAIL_FROM", raising=False)
+
+    cfg = _settings()
+
+    assert cfg.smtp_host is None
+    assert cfg.smtp_port == 1025
+    assert cfg.smtp_username is None
+    assert cfg.smtp_password is None
+    assert cfg.smtp_use_tls is False
+    assert cfg.smtp_timeout == 10
+    assert cfg.mail_from == "TaskHub <noreply@taskhub.local>"
+
+
+@pytest.mark.parametrize("port", [0, 65536])
+def test_an_smtp_port_outside_1_65535_is_refused(port: int) -> None:
+    with pytest.raises(ValidationError, match="smtp_port"):
+        _settings(smtp_port=port)
+
+
+def test_the_smtp_password_never_shows_in_repr() -> None:
+    cfg = _settings(smtp_password="hunter2-secret")
+
+    assert "hunter2-secret" not in repr(cfg)
+    assert cfg.smtp_password is not None
+    assert cfg.smtp_password.get_secret_value() == "hunter2-secret"

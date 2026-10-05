@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting %s (%s)", settings.app_name, settings.environment)
+    if settings.smtp_host is None:
+        logger.info("Email notifications disabled: SMTP_HOST is not set")
+    else:
+        logger.info("Email notifications via %s:%d", settings.smtp_host, settings.smtp_port)
     yield
     await dispose_engine()
     logger.info("Shutdown complete")

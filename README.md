@@ -9,9 +9,11 @@ PostgreSQL, laid out in loosely coupled layers along DDD lines.
 > active logged-in user can add to any task (no un-bookmark, no listing
 > bookmarks back), assigning a task to another active user (history recorded,
 > no read endpoint), and comments: any active user can add one, and its
-> author, an admin or the project's owner can delete it. Users register, log
-> in with a JWT, and can read or update their own profile; a public,
-> read-only profile lookup stays open to anyone. The admin and
+> author, an admin or the project's owner can delete it; when SMTP is
+> configured, a new comment also emails the task's assignee. Users register
+> (optionally with an email address), log in with a JWT, and can read or
+> update their own profile; a public, read-only profile lookup stays open to
+> anyone. The admin and
 > project-manager guards (`app/api/permissions.py`) still guard no route; the
 > comment guard next to them guards the comment delete. All of it sits on the
 > same response contract, database wiring and error handling, and all of it
@@ -47,6 +49,10 @@ cp .env.example .env
 docker compose up --build
 ```
 
+This also starts [Mailpit](https://mailpit.axllent.org), a local mail catcher
+(SMTP on 1025, inbox at <http://localhost:8025>), and points the API at it, so
+mail the API sends shows up there. See Email notifications.
+
 Against a local interpreter, with only the database in a container. Here
 `DATABASE_URL` **must** be filled in with real values — `.env.example` ships
 placeholders:
@@ -59,10 +65,14 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
+Email is optional on this path: leave `SMTP_HOST` unset and none is sent. To
+see it, run `docker compose up -d mailpit` and set `SMTP_HOST=localhost` in
+`.env`.
+
 The API serves projects and tags (full CRUD), tasks nested under a project
 (list and create) plus a top-level task list across every project, a
-bookmark endpoint, task assignment, comment create and delete,
-user registration/login/profile management, and a public
+bookmark endpoint, task assignment, comment create and delete (a new
+comment emails the assignee), user registration/login/profile management, and a public
 read-only profile lookup, all under `/api/v1`. Browse them at `/docs`, which
 also renders every error response each route can return. Those three doc
 routes are served everywhere except production.
@@ -79,7 +89,8 @@ services:
 ```
 
 Then point `DATABASE_URL` in `.env` at the same host port. Only the host side
-moves; inside the compose network the database still listens on 5432.
+moves; inside the compose network the database still listens on 5432. The same
+file can remap Mailpit's `1025:1025` and `8025:8025` the same way.
 
 `ENVIRONMENT` and `DATABASE_URL` have no defaults — miss either and the
 process refuses to start, naming the variable, rather than running on a guess.
@@ -101,7 +112,7 @@ app/
 ├── repositories/   SQLAlchemy queries, no business rules
 ├── schemas/        request and response DTOs
 ├── models/         SQLAlchemy entities
-└── core/           config, database, exceptions, handlers, middleware
+└── core/           config, database, exceptions, handlers, mail, middleware
 ```
 
 The rule that keeps the layers apart: **routers hold no business logic and
@@ -144,10 +155,10 @@ JWT bearer tokens, issued by the API itself — no third-party identity provider
 
 | Method | Path | |
 |---|---|---|
-| `POST` | `/api/v1/users/register` | Create a user: `{username, password, full_name?}` → `201` with the new `UserRead`. |
+| `POST` | `/api/v1/users/register` | Create a user: `{username, password, full_name?, email?}` → `201` with the new `UserPrivate`. |
 | `POST` | `/api/v1/users/login` | Exchange a username and password, **form-encoded**, for an access token. |
-| `GET` | `/api/v1/users/me` | The authenticated user, as `UserRead`. Requires `Authorization: Bearer <token>`. |
-| `PUT` | `/api/v1/users/me` | Replace `full_name` (`null` clears it, the key is required). Username is immutable. Requires the same header. |
+| `GET` | `/api/v1/users/me` | The authenticated user, as `UserPrivate`. Requires `Authorization: Bearer <token>`. |
+| `PUT` | `/api/v1/users/me` | Replace `full_name` (`null` clears it, the key is required) and, optionally, `email`: omitted keeps it, `null` clears it, a value sets it. Username is immutable. Returns `UserPrivate`. Requires the same header. |
 
 ```bash
 curl -s -X POST localhost:8000/api/v1/users/register \
@@ -159,6 +170,14 @@ TOKEN=$(curl -s -X POST localhost:8000/api/v1/users/login \
 
 curl -s localhost:8000/api/v1/users/me -H "Authorization: Bearer $TOKEN"
 ```
+
+`email` is optional, stored lowercase and unique: a second account claiming
+the same address is a `409` (`email-taken`), on register and on `PUT
+/users/me` alike. It is the address comment notifications go to. It appears
+only in `UserPrivate` — the register, `GET /users/me` and `PUT /users/me`
+responses, which answer the caller about themselves — and never in
+`UserRead`, so it is not on the public profile or on a user nested in another
+response.
 
 `JWT_SECRET_KEY` is required, like `DATABASE_URL` — the process refuses to
 start without it. Generate one with:
@@ -320,6 +339,34 @@ No endpoint sets `project.owner_id`, so through the API only an admin or the
 author passes. A delete that loses a race with another delete is also a
 `comment-not-found`.
 
+## Email notifications
+
+A new comment emails the task's assignee, and nobody else. Nothing is sent
+when the task has no assignee, when the assignee is the comment's author, when
+the assignee is disabled, or when the assignee has no email address. The
+mail is plain text: who commented, the task's id and title, and the comment.
+
+It is sent after the comment is saved and after the response goes out, by
+FastAPI `BackgroundTasks` — no queue and no retry, so a message is lost if the
+process dies first. A failure (mail server down, refused, timed out) is logged
+with the task and comment ids and never reaches the client; the comment is
+already saved either way. The recipient's address is not logged. At startup
+one log line says whether mail is on.
+
+With no `SMTP_HOST` the app runs and sends nothing. Mailpit, in
+`docker-compose.yml`, accepts anything and delivers nothing — for local use
+only. Settings:
+
+| Variable | Default | |
+|---|---|---|
+| `SMTP_HOST` | unset | Unset disables email. |
+| `SMTP_PORT` | `1025` | |
+| `SMTP_USERNAME` | unset | Authenticate only when set. |
+| `SMTP_PASSWORD` | unset | e.g. `SMTP_PASSWORD=<your-password>`. |
+| `SMTP_USE_TLS` | `false` | `true` is implicit TLS; otherwise STARTTLS is used when the server offers it. |
+| `SMTP_TIMEOUT` | `10` | Seconds to wait on the server. |
+| `MAIL_FROM` | `TaskHub <noreply@taskhub.local>` | |
+
 ## Quality gate
 
 ```bash
@@ -338,6 +385,17 @@ separate `taskhub_test` database on first run and applies the migrations to it �
 your development data is never touched, and `TEST_DATABASE_URL` overrides the
 target. Each test runs inside a transaction that is rolled back afterwards, so
 tests cannot see each other's writes even when they commit.
+
+The brief names FastAPI's `TestClient`; the suite uses `httpx.AsyncClient`
+over `ASGITransport` (the `api_client` fixture) instead. The app is async on
+asyncpg, and that client runs the app on a loop of its own, which cannot share
+the test's connection and its rolled-back transaction — FastAPI's "Async
+Tests" guide takes the same route. The Register → Create Task flow is
+`tests/test_register_and_create_task_flow.py`.
+
+Mail tests need no Mailpit: they override the `Mailer` with a recording one,
+and send through `SmtpMailer` to an in-process `aiosmtpd` server. The suite
+ignores `SMTP_HOST` from `.env`.
 
 Two suites are the exception and commit for real, because a rolled-back
 transaction cannot show a missing `commit()` or hold two competing

@@ -57,7 +57,9 @@ class UserService:
         try:
             await self._session.commit()
         except IntegrityError as exc:
-            raise email_taken(data.email or "") from exc
+            if data.email is not None and "ix_user_email" in str(exc.orig):
+                raise email_taken(data.email) from exc
+            raise
         await self._session.refresh(user)
         return user
 

@@ -381,7 +381,9 @@ nothing. `GET /tags/{id}` is not cached.
 The cache fails open. A Redis that is down or slow (0.5 s timeouts, no
 retries) is logged at WARNING and skipped: reads go to Postgres and writes
 still succeed. The one cost is that a write whose `INCR` failed can leave the
-list stale until the TTL runs out.
+list stale until the TTL runs out. Run Redis with `maxmemory-policy noeviction`
+(or no `maxmemory`): if `tags:version` alone is evicted it resets to 0 and old
+v0 pages can be served for up to one TTL.
 
 To run without it, leave `REDIS_URL` unset — no connection is ever attempted.
 The compose Redis has no password and is for local development only; in

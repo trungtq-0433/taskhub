@@ -33,6 +33,8 @@ class SmtpInbox:
     def __init__(self, port: int) -> None:
         self.port = port
         self.envelopes: list[Envelope] = []
+        # A full SMTP reply ("550 ...") to give every RCPT, or None to accept.
+        self.refuse_rcpt_with: str | None = None
 
     @property
     def messages(self) -> list[Message]:
@@ -46,7 +48,20 @@ class SmtpInbox:
             for envelope in self.envelopes
         ]
 
-    # aiosmtpd looks the hook up by this exact name.
+    # aiosmtpd looks the hooks up by these exact names.
+    async def handle_RCPT(  # noqa: N802
+        self,
+        server: SMTP,
+        session: Session,
+        envelope: Envelope,
+        address: str,
+        rcpt_options: list[str],
+    ) -> str:
+        if self.refuse_rcpt_with is not None:
+            return self.refuse_rcpt_with.replace("{address}", address)
+        envelope.rcpt_tos.append(address)
+        return "250 OK"
+
     async def handle_DATA(  # noqa: N802
         self, server: SMTP, session: Session, envelope: Envelope
     ) -> str:

@@ -71,6 +71,30 @@ async def test_an_unreachable_server_is_logged_with_the_reference_and_never_rais
     assert RECIPIENT not in caplog.text
 
 
+async def test_a_refused_recipient_is_logged_without_the_address_and_never_raised(
+    inbox: SmtpInbox, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Servers echo the address back in the 550 reply, and aiosmtplib puts that
+    # reply in the exception: logging the exception would log the address.
+    inbox.refuse_rcpt_with = "550 5.1.1 <{address}> no such user"
+    try:
+        with caplog.at_level(logging.DEBUG, logger="app.core.mail"):
+            await _mailer(inbox.port).send(
+                OutgoingEmail(to=RECIPIENT, subject="s", body="b", reference="task 12, comment 34")
+            )
+    finally:
+        inbox.refuse_rcpt_with = None
+
+    # Only the mailer's records: the in-process server logs the address itself.
+    (record,) = [r for r in caplog.records if r.name == "app.core.mail"]
+    assert record.levelno == logging.ERROR
+    assert "task 12, comment 34" in record.getMessage()
+    assert "SMTPRecipientsRefused" in record.getMessage()
+    assert record.exc_info is None
+    assert RECIPIENT not in record.getMessage()
+    assert RECIPIENT not in str(record.__dict__)
+
+
 async def test_get_mailer_is_none_without_smtp_host(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "smtp_host", None)
 

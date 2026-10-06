@@ -189,3 +189,15 @@ async def test_an_unreachable_redis_does_not_fail_a_write(
     assert response.status_code == HTTPStatus.CREATED
     assert elapsed[0] < 2
     assert [r.levelno for r in caplog.records] == [logging.WARNING]
+
+
+async def test_a_page_past_the_end_is_not_cached_but_a_real_page_is(
+    api_client: AsyncClient, db_session: AsyncSession, cache: TagListCache
+) -> None:
+    await _seed(db_session, "alpha")
+
+    assert await _names(api_client, page=99, size=5) == []
+    assert await cache.client.keys("tags:v*:p*") == []
+
+    assert await _names(api_client, page=1, size=5) == ["alpha"]
+    assert await cache.client.keys("tags:v*:p*") == ["tags:v0:p1:s5"]

@@ -14,7 +14,9 @@ failed one, and under httpx's `ASGITransport` the exception comes out of
 failure is logged and dropped; there is no retry.
 
 `reference` is how "which task, which comment" reaches that log line without
-the mailer knowing what a comment is. The recipient's address is never logged.
+the mailer knowing what a comment is. The recipient's address is never logged,
+which is why a failure is logged as the reference and the exception's type, with
+no message and no traceback: SMTP errors quote the address.
 """
 
 import logging
@@ -102,8 +104,10 @@ class SmtpMailer:
                 start_tls=False if self._use_tls else None,
                 timeout=self._timeout,
             )
-        except Exception:  # nothing may escape: see the module docstring
-            logger.exception("Email for %s was not sent", email.reference)
+        except Exception as exc:  # nothing may escape: see the module docstring
+            # Type only: the message and traceback of an SMTP error carry the
+            # recipient's address (a 550 reply echoes it back).
+            logger.error("Email for %s was not sent (%s)", email.reference, type(exc).__name__)
         else:
             logger.debug("Email for %s was sent", email.reference)
 

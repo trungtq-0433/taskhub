@@ -63,6 +63,10 @@ class TagListCache:
                 pass  # an older deploy's shape: a miss
 
         loaded = await load()
+        if not loaded.items:
+            # `page` and `size` come from an unauthenticated query string: storing
+            # empty pages would let a client mint a key per combination.
+            return loaded
         try:
             await self.client.set(key, loaded.model_dump_json(), ex=TTL_SECONDS)
         except REDIS_DOWN as exc:

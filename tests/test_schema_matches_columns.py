@@ -37,6 +37,8 @@ MAPPINGS = [
     (UserRegister, "username", User, "username"),
     (UserRegister, "full_name", User, "full_name"),
     (UserUpdate, "full_name", User, "full_name"),
+    (UserRegister, "email", User, "email"),
+    (UserUpdate, "email", User, "email"),
 ]
 
 # `UserRegister.password` is deliberately absent: it has no column of its own

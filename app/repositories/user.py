@@ -31,6 +31,11 @@ class UserRepository:
         result = await self._session.scalars(select(User).where(User.username == username))
         return result.one_or_none()
 
+    async def get_by_email(self, email: str) -> User | None:
+        """Plain equality — addresses are stored lowercase (`Email` in the schema)."""
+        result = await self._session.scalars(select(User).where(User.email == email))
+        return result.one_or_none()
+
     async def add(self, user: User) -> User:
         """Flush and refresh so the caller reads back the id and timestamps.
 

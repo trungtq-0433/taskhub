@@ -5,6 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import true
 
 from app.constants import (
+    EMAIL_MAX_LENGTH,
     FULL_NAME_MAX_LENGTH,
     HASHED_PASSWORD_LENGTH,
     USER_ROLE_MAX_LENGTH,
@@ -39,6 +40,12 @@ class User(Base, TimestampMixin):
     # result and nothing here can enforce it.
     username: Mapped[str] = mapped_column(String(USERNAME_MAX_LENGTH), unique=True, index=True)
     full_name: Mapped[str | None] = mapped_column(String(FULL_NAME_MAX_LENGTH), default=None)
+    # Optional. Stored lowercase by the schema (`Email`), so the plain unique
+    # index is case-safe like `username`'s; NULLs never collide, so any number
+    # of users may have no address. Only `UserPrivate` ever returns it.
+    email: Mapped[str | None] = mapped_column(
+        String(EMAIL_MAX_LENGTH), unique=True, index=True, default=None
+    )
     hashed_password: Mapped[str] = mapped_column(String(HASHED_PASSWORD_LENGTH))
     # VARCHAR, not a Postgres ENUM — see UserRole for why.
     role: Mapped[str] = mapped_column(

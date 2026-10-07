@@ -114,7 +114,7 @@ app/
 ├── repositories/   SQLAlchemy queries, no business rules
 ├── schemas/        request and response DTOs
 ├── models/         SQLAlchemy entities
-└── core/           config, database, exceptions, handlers, mail, middleware
+└── core/           config, database, exceptions, handlers, mail, redis, middleware
 ```
 
 The rule that keeps the layers apart: **routers hold no business logic and
@@ -376,7 +376,9 @@ and the response is byte for byte the same either way. Each page is stored
 under `tags:v{version}:p{page}:s{size}` for 300 seconds. `POST`, `PATCH` and
 `DELETE /tags` run `INCR tags:version` once their commit has succeeded, which
 orphans every stored page at once; a refused write (404, 409, 422) changes
-nothing. `GET /tags/{id}` is not cached.
+nothing. An empty page is never stored: `page` and `size` come from an
+unauthenticated query string, and caching them would let a client mint a key
+per combination. `GET /tags/{id}` is not cached.
 
 The cache fails open. A Redis that is down or slow (0.5 s timeouts, no
 retries) is logged at WARNING and skipped: reads go to Postgres and writes

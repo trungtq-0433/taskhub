@@ -48,8 +48,8 @@ the generated schema, so `?page=2&size=50` is unchanged on the wire."""
 
 
 class BoundedParams(Params):
-    """fastapi-pagination's `Params` for the two task lists, held to the same
-    bounds as `Pagination`.
+    """fastapi-pagination's `Params` for the two task lists and the tag list,
+    held to the same bounds as `Pagination`.
 
     Upstream `page` has no ceiling, so `offset = size * (page - 1)` can pass
     Postgres's bigint and a public request dies as a 500 `database-error`

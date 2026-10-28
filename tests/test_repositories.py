@@ -1,5 +1,6 @@
 """Repository behaviour, against real SQL."""
 
+from fastapi_pagination import Params
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -90,12 +91,12 @@ async def test_tag_repository_covers_the_same_ground(db_session: AsyncSession) -
     tag = await repo.add(Tag(name="urgent", color="#ff0000"))
 
     assert await repo.get(tag.id) is not None
-    assert await repo.count() == 1
+    assert (await repo.paginate(Params())).total == 1
     assert await repo.name_exists("urgent") is True
     assert await repo.name_exists("urgent", exclude_id=tag.id) is False
 
     await repo.delete(tag)
-    assert await repo.count() == 0
+    assert (await repo.paginate(Params())).total == 0
 
 
 async def _seed_task_graph(session: AsyncSession) -> tuple[Project, User, list[Tag]]:

@@ -253,11 +253,11 @@ always lists everything in that project.
 curl -s "localhost:8000/api/v1/tasks?status=todo&priority=high"
 ```
 
-Both task lists are paginated: `page` is 1-100000, `size` is 1-100 and
-defaults to 50 when omitted. `/api/v1/projects` and `/api/v1/tags` share the
-same `page` ceiling but default to `size=20` — the task lists and the older
-list routes are paginated by two different libraries under the hood, and were
-never meant to share a default. The `page` ceiling is not arbitrary: without
+Both task lists and `/api/v1/tags` are paginated by fastapi-pagination: `page`
+is 1-100000, `size` is 1-100 and defaults to 50 when omitted.
+`/api/v1/projects` shares the same bounds but defaults to `size=20` — it is
+paginated by the app's own `Page` model, and was never meant to share a
+default. The `page` ceiling is not arbitrary: without
 it the computed offset can pass Postgres's bigint, and the request dies as a
 `500` instead of being refused as a `422`:
 

@@ -5,9 +5,10 @@ Who may delete a comment is decided at the API layer
 `ForbiddenError`.
 
 A new comment emails the task's assignee, and nobody else, unless that is the
-author, has no address or is disabled. The message is built before the response
-is returned: the background task runs after the request's session is closed, so
-it is handed plain values, never an ORM object.
+author, has no address or is disabled. This module decides who and when; the
+wording is `app.notifications.comment`'s. The message is built before the
+response is returned: the background task runs after the request's session is
+closed, so it is handed plain values, never an ORM object.
 """
 
 from typing import Annotated
@@ -18,6 +19,7 @@ from app.core.database import SessionDep
 from app.core.exceptions import NotFoundError
 from app.core.mail import Mailer, MailerDep, OutgoingEmail
 from app.models import Comment, Project, Task, User
+from app.notifications.comment import new_comment_email
 from app.repositories.comment import CommentRepository
 from app.repositories.user import UserRepository
 from app.schemas.comment import CommentCreate
@@ -76,15 +78,13 @@ class CommentService:
         assignee = await self._users.get(task.assignee_id)
         if assignee is None or not assignee.is_active or assignee.email is None:
             return None
-        return OutgoingEmail(
+        return new_comment_email(
             to=assignee.email,
-            # Ids only: client text (a title may hold CR/LF) must stay out of headers.
-            subject=f"[TaskHub] New comment on task #{task.id}",
-            body=(
-                f'{author.username} commented on task #{task.id} "{task.title}":\n\n'
-                f"{comment.content}"
-            ),
-            reference=f"task {task.id}, comment {comment.id}",
+            author=author.username,
+            task_id=task.id,
+            task_title=task.title,
+            comment_id=comment.id,
+            content=comment.content,
         )
 
     async def get_with_project(self, task_id: int, comment_id: int) -> tuple[Comment, Project]:

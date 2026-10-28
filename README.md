@@ -114,6 +114,7 @@ app/
 ├── repositories/   SQLAlchemy queries, no business rules
 ├── schemas/        request and response DTOs
 ├── models/         SQLAlchemy entities
+├── notifications/  what an email says: builders and their Jinja2 templates
 └── core/           config, database, exceptions, handlers, mail, redis, middleware
 ```
 
@@ -347,6 +348,9 @@ A new comment emails the task's assignee, and nobody else. Nothing is sent
 when the task has no assignee, when the assignee is the comment's author, when
 the assignee is disabled, or when the assignee has no email address. The
 mail is plain text: who commented, the task's id and title, and the comment.
+Its body is the Jinja2 template `app/notifications/templates/new_comment.txt`;
+the subject, which holds only the task id, is set in code so no user text
+reaches a mail header.
 
 It is sent after the comment is saved and after the response goes out, by
 FastAPI `BackgroundTasks` — no queue and no retry, so a message is lost if the

@@ -11,8 +11,9 @@ from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.exc import IntegrityError
 
-from app.core.database import SessionDep
-from app.core.exceptions import ConflictError, NotFoundError
+from app.constants import USER_EMAIL_INDEX
+from app.core.database import SessionDep, violated_constraint
+from app.core.exceptions import EmailTakenError, NotFoundError
 from app.models import User
 from app.repositories.task import TaskRepository
 from app.repositories.user import UserRepository
@@ -21,11 +22,6 @@ from app.schemas.task import TaskCounts
 from app.schemas.user import UserRead, UserUpdate, normalize_username
 
 logger = logging.getLogger(__name__)
-
-
-def email_taken(email: str) -> ConflictError:
-    """The one 409 for an address another user holds — register and `PUT /users/me` share it."""
-    return ConflictError(f"Email {email!r} is already registered.", problem_type="email-taken")
 
 
 class UserService:
@@ -52,13 +48,13 @@ class UserService:
                 and data.email != user.email
                 and await self._users.get_by_email(data.email) is not None
             ):
-                raise email_taken(data.email)
+                raise EmailTakenError(data.email)
             user.email = data.email
         try:
             await self._session.commit()
         except IntegrityError as exc:
-            if data.email is not None and "ix_user_email" in str(exc.orig):
-                raise email_taken(data.email) from exc
+            if data.email is not None and violated_constraint(exc) == USER_EMAIL_INDEX:
+                raise EmailTakenError(data.email) from exc
             raise
         await self._session.refresh(user)
         return user

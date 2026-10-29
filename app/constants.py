@@ -115,6 +115,10 @@ FULL_NAME_MAX_LENGTH = 100
 # RFC 5321's limit on a forward path; email-validator enforces the same cap, so
 # the column is never wider than the longest address the schema lets through.
 EMAIL_MAX_LENGTH = 254
+# The name NAMING_CONVENTION (`ix_%(column_0_label)s`) gives the unique index on
+# `user.email`. A unique violation naming it is a lost race for an address, which
+# register and `PUT /users/me` answer with `409 email-taken`.
+USER_EMAIL_INDEX = "ix_user_email"
 
 # bcrypt's own ceiling: bytes 73+ of the input are silently ignored by the
 # reference algorithm, and this library raises `ValueError` instead of quietly

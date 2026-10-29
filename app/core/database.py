@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import Depends
 from sqlalchemy import MetaData
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (
     AsyncAttrs,
     AsyncEngine,
@@ -71,6 +72,18 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 async def dispose_engine() -> None:
     """Close pooled connections — called on application shutdown."""
     await engine.dispose()
+
+
+def violated_constraint(exc: IntegrityError) -> str | None:
+    """The name of the constraint or unique index an `IntegrityError` tripped.
+
+    Read from asyncpg's own exception, which SQLAlchemy's adapter chains as the
+    DBAPI error's `__cause__`, rather than searched for in the message text,
+    which the driver is free to reword.
+    """
+    cause = exc.orig.__cause__ if exc.orig is not None else None
+    name = getattr(cause, "constraint_name", None)
+    return name if isinstance(name, str) else None
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]

@@ -538,7 +538,8 @@ over `ASGITransport` (the `api_client` fixture) instead. The app is async on
 asyncpg, and that client runs the app on a loop of its own, which cannot share
 the test's connection and its rolled-back transaction — FastAPI's "Async
 Tests" guide takes the same route. The Register → Create Task flow is
-`tests/test_register_and_create_task_flow.py`.
+`tests/test_register_and_create_task_flow.py`; `tests/test_full_api_flow.py`
+chains the whole API, from registration to deleting a comment.
 
 The tag cache tests use a real Redis (`docker compose up -d redis`). They run
 against db 15 of the Redis in `REDIS_URL`, emptying it around each test, or

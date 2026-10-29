@@ -1,9 +1,21 @@
 """Queries against the `user` table. No business rules live here."""
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants import USER_EMAIL_INDEX
+from app.core.database import violated_constraint
 from app.models import Project, User
+
+
+def is_email_conflict(exc: IntegrityError) -> bool:
+    """Whether a failed write lost the race for an address on the email index.
+
+    Register and `PUT /users/me` both check the address first; this is what
+    still catches two requests that passed that check together.
+    """
+    return violated_constraint(exc) == USER_EMAIL_INDEX
 
 
 class UserRepository:

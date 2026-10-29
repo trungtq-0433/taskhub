@@ -1,6 +1,6 @@
 """The `user` table."""
 
-from sqlalchemy import String
+from sqlalchemy import Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import true
 
@@ -8,6 +8,7 @@ from app.constants import (
     EMAIL_MAX_LENGTH,
     FULL_NAME_MAX_LENGTH,
     HASHED_PASSWORD_LENGTH,
+    USER_EMAIL_INDEX,
     USER_ROLE_MAX_LENGTH,
     USERNAME_MAX_LENGTH,
     UserRole,
@@ -33,6 +34,9 @@ class User(Base, TimestampMixin):
     """
 
     __tablename__ = "user"
+    # Declared by name, not with `unique=True, index=True` on the column: the
+    # services recognise a lost race for an address by this same name.
+    __table_args__ = (Index(USER_EMAIL_INDEX, "email", unique=True),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     # Stored lowercase, so the unique index and the URL lookup agree without a
@@ -43,9 +47,7 @@ class User(Base, TimestampMixin):
     # Optional. Stored lowercase by the schema (`Email`), so the plain unique
     # index is case-safe like `username`'s; NULLs never collide, so any number
     # of users may have no address. Only `UserPrivate` ever returns it.
-    email: Mapped[str | None] = mapped_column(
-        String(EMAIL_MAX_LENGTH), unique=True, index=True, default=None
-    )
+    email: Mapped[str | None] = mapped_column(String(EMAIL_MAX_LENGTH), default=None)
     hashed_password: Mapped[str] = mapped_column(String(HASHED_PASSWORD_LENGTH))
     # VARCHAR, not a Postgres ENUM — see UserRole for why.
     role: Mapped[str] = mapped_column(

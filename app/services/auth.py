@@ -5,12 +5,11 @@ from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.exc import IntegrityError
 
-from app.constants import USER_EMAIL_INDEX
-from app.core.database import SessionDep, violated_constraint
+from app.core.database import SessionDep
 from app.core.exceptions import ConflictError, EmailTakenError, UnauthorizedError
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import User
-from app.repositories.user import UserRepository
+from app.repositories.user import UserRepository, is_email_conflict
 from app.schemas.user import Token, UserRegister, normalize_username
 
 
@@ -52,7 +51,7 @@ class AuthService:
             await self._users.add(user)
             await self._session.commit()
         except IntegrityError as exc:
-            if data.email is not None and violated_constraint(exc) == USER_EMAIL_INDEX:
+            if data.email is not None and is_email_conflict(exc):
                 raise EmailTakenError(data.email) from exc
             raise ConflictError(
                 f"Username {data.username!r} is already taken.",

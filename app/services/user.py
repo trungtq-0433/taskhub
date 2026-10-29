@@ -11,12 +11,11 @@ from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.exc import IntegrityError
 
-from app.constants import USER_EMAIL_INDEX
-from app.core.database import SessionDep, violated_constraint
+from app.core.database import SessionDep
 from app.core.exceptions import EmailTakenError, NotFoundError
 from app.models import User
 from app.repositories.task import TaskRepository
-from app.repositories.user import UserRepository
+from app.repositories.user import UserRepository, is_email_conflict
 from app.schemas.profile import UserProfile
 from app.schemas.task import TaskCounts
 from app.schemas.user import UserRead, UserUpdate, normalize_username
@@ -53,7 +52,7 @@ class UserService:
         try:
             await self._session.commit()
         except IntegrityError as exc:
-            if data.email is not None and violated_constraint(exc) == USER_EMAIL_INDEX:
+            if data.email is not None and is_email_conflict(exc):
                 raise EmailTakenError(data.email) from exc
             raise
         await self._session.refresh(user)

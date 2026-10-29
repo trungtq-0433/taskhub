@@ -115,9 +115,10 @@ FULL_NAME_MAX_LENGTH = 100
 # RFC 5321's limit on a forward path; email-validator enforces the same cap, so
 # the column is never wider than the longest address the schema lets through.
 EMAIL_MAX_LENGTH = 254
-# The name NAMING_CONVENTION (`ix_%(column_0_label)s`) gives the unique index on
-# `user.email`. A unique violation naming it is a lost race for an address, which
-# register and `PUT /users/me` answer with `409 email-taken`.
+# The unique index on `user.email`. The model declares it by this name, and a
+# unique violation naming it is a lost race for an address, which register and
+# `PUT /users/me` answer with `409 email-taken`. Spelled the way
+# NAMING_CONVENTION would have named it, so the database needs no migration.
 USER_EMAIL_INDEX = "ix_user_email"
 
 # The Redis key whose number every cached tag page carries in its own key

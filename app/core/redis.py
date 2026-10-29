@@ -12,14 +12,11 @@ from redis.backoff import NoBackoff
 
 from app.core.config import settings
 
-# A dead Redis must cost a request about half a second, not a hang.
-SOCKET_TIMEOUT_SECONDS = 0.5
-
 _client: Redis | None = None
 
 
 def make_client(url: str) -> Redis:
-    """A client with short timeouts, strings in and out, and no retries.
+    """A client with short timeouts (`REDIS_TIMEOUT`), strings in and out, and no retries.
 
     redis-py retries a failed command three times with exponential backoff by
     default, which turns one dead-Redis call into seconds; the cache would
@@ -29,8 +26,8 @@ def make_client(url: str) -> Redis:
     return Redis.from_url(
         url,
         decode_responses=True,
-        socket_connect_timeout=SOCKET_TIMEOUT_SECONDS,
-        socket_timeout=SOCKET_TIMEOUT_SECONDS,
+        socket_connect_timeout=settings.redis_timeout,
+        socket_timeout=settings.redis_timeout,
         retry=Retry(NoBackoff(), 0),
     )
 

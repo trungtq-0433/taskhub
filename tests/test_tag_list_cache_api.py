@@ -15,10 +15,12 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants import TAG_CACHE_VERSION_KEY
+from app.core.config import settings
 from app.core.redis import make_client
 from app.main import app
 from app.models import Tag
-from app.services.tag_cache import VERSION_KEY, TagListCache, get_tag_list_cache
+from app.services.tag_cache import TagListCache, get_tag_list_cache
 from tests.redis_urls import DEV_REDIS_URL, database_of, redis_url_for_tests
 from tests.servers import free_port
 
@@ -99,7 +101,7 @@ async def test_a_write_bumps_the_version_and_the_next_read_is_fresh(
     await _seed(db_session, "alpha")
     first = await api_client.get(BASE)
     tag_id = first.json()["items"][0]["id"]
-    assert await cache.client.get(VERSION_KEY) is None
+    assert await cache.client.get(TAG_CACHE_VERSION_KEY) is None
 
     if method == "POST":
         response = await api_client.post(BASE, json={"name": "beta"})
@@ -112,7 +114,7 @@ async def test_a_write_bumps_the_version_and_the_next_read_is_fresh(
         expected = []
     assert response.is_success
 
-    assert await cache.client.get(VERSION_KEY) == "1"
+    assert await cache.client.get(TAG_CACHE_VERSION_KEY) == "1"
     assert await _names(api_client) == expected
 
 
@@ -138,7 +140,7 @@ async def test_a_refused_write_does_not_bump_the_version(
     response = await send(api_client)  # type: ignore[misc]
 
     assert response.status_code == status
-    assert await cache.client.get(VERSION_KEY) is None
+    assert await cache.client.get(TAG_CACHE_VERSION_KEY) is None
 
 
 async def test_the_key_names_version_page_and_size_and_expires_within_300_s(
@@ -148,7 +150,7 @@ async def test_the_key_names_version_page_and_size_and_expires_within_300_s(
     await api_client.get(BASE, params={"page": 1, "size": 5})
 
     assert await cache.client.keys("tags:*") == ["tags:v0:p1:s5"]
-    assert 0 < await cache.client.ttl("tags:v0:p1:s5") <= 300
+    assert 0 < await cache.client.ttl("tags:v0:p1:s5") <= settings.tag_cache_ttl
 
 
 @asynccontextmanager

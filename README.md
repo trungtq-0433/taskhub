@@ -380,15 +380,16 @@ only. Settings:
 
 `GET /tags` is served from Redis when it can be, from Postgres when it cannot,
 and the response is byte for byte the same either way. Each page is stored
-under `tags:v{version}:p{page}:s{size}` for 300 seconds. `POST`, `PATCH` and
+under `tags:v{version}:p{page}:s{size}` for `TAG_CACHE_TTL` seconds (default
+300). `POST`, `PATCH` and
 `DELETE /tags` run `INCR tags:version` once their commit has succeeded, which
 orphans every stored page at once; a refused write (404, 409, 422) changes
 nothing. An empty page is never stored: `page` and `size` come from an
 unauthenticated query string, and caching them would let a client mint a key
 per combination. `GET /tags/{id}` is not cached.
 
-The cache fails open. A Redis that is down or slow (0.5 s timeouts, no
-retries) is logged at WARNING and skipped: reads go to Postgres and writes
+The cache fails open. A Redis that is down or slow (`REDIS_TIMEOUT`, default
+0.5 s, and no retries) is logged at WARNING and skipped: reads go to Postgres and writes
 still succeed. The one cost is that a write whose `INCR` failed can leave the
 list stale until the TTL runs out. Run Redis with `maxmemory-policy noeviction`
 (or no `maxmemory`): if `tags:version` alone is evicted it resets to 0 and old

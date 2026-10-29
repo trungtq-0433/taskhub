@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     # Redis is only ever a speed-up, so a Redis outage at runtime is logged and
     # skipped, never an error. e.g. redis://localhost:6379/0
     redis_url: str | None = None
+    # Seconds to connect, and to wait on each command. Short on purpose: a dead
+    # Redis must cost a request about this long, then the cache steps aside.
+    redis_timeout: float = Field(default=0.5, gt=0)
+    # Seconds a cached tag page lives. A tag write orphans every page sooner.
+    tag_cache_ttl: int = Field(default=300, ge=1)
 
     @field_validator("database_url", mode="after")
     @classmethod

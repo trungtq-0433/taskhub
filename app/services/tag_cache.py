@@ -20,6 +20,8 @@ from pydantic import ValidationError
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
+from app.constants import TAG_CACHE_VERSION_KEY
+from app.core.config import settings
 from app.core.redis import get_redis_client
 from app.schemas.base import Page
 from app.schemas.tag import TagRead
@@ -29,8 +31,6 @@ logger = logging.getLogger(__name__)
 # `OSError` and `TimeoutError` are not `RedisError`s: a refused or timed-out
 # connection surfaces as one of the two depending on where it fails.
 REDIS_DOWN = (RedisError, OSError, TimeoutError)
-VERSION_KEY = "tags:version"
-TTL_SECONDS = 300
 
 
 class TagListCache:
@@ -49,7 +49,7 @@ class TagListCache:
         """
         try:
             # redis-py's stubs type replies as bytes; `make_client` decodes them.
-            version = str(await self.client.get(VERSION_KEY) or "0")
+            version = str(await self.client.get(TAG_CACHE_VERSION_KEY) or "0")
             key = f"tags:v{version}:p{page}:s{size}"
             cached = await self.client.get(key)
         except REDIS_DOWN as exc:
@@ -60,7 +60,9 @@ class TagListCache:
             try:
                 return Page[TagRead].model_validate_json(cached)
             except ValidationError:
-                pass  # an older deploy's shape: a miss
+                # An older deploy's shape: a miss, refilled below. DEBUG, not
+                # WARNING: after such a deploy every read hits it for one TTL.
+                logger.debug("Cached tag page %s has an outdated shape; reloading", key)
 
         loaded = await load()
         if not loaded.items:
@@ -68,7 +70,7 @@ class TagListCache:
             # empty pages would let a client mint a key per combination.
             return loaded
         try:
-            await self.client.set(key, loaded.model_dump_json(), ex=TTL_SECONDS)
+            await self.client.set(key, loaded.model_dump_json(), ex=settings.tag_cache_ttl)
         except REDIS_DOWN as exc:
             self._warn(exc)
         return loaded
@@ -76,7 +78,7 @@ class TagListCache:
     async def invalidate(self) -> None:
         """Orphan every cached page. Call only after the write has committed."""
         try:
-            await self.client.incr(VERSION_KEY)
+            await self.client.incr(TAG_CACHE_VERSION_KEY)
         except REDIS_DOWN as exc:
             self._warn(exc)
 

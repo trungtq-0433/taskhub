@@ -133,6 +133,11 @@ def test_the_smtp_password_never_shows_in_repr() -> None:
 
 
 def test_redis_is_optional_and_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("REDIS_URL", raising=False)
+    for name in ("REDIS_URL", "REDIS_TIMEOUT", "TAG_CACHE_TTL"):
+        monkeypatch.delenv(name, raising=False)
 
-    assert _settings().redis_url is None
+    cfg = _settings()
+
+    assert cfg.redis_url is None
+    assert cfg.redis_timeout == 0.5
+    assert cfg.tag_cache_ttl == 300

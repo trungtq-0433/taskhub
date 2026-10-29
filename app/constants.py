@@ -120,6 +120,11 @@ EMAIL_MAX_LENGTH = 254
 # register and `PUT /users/me` answer with `409 email-taken`.
 USER_EMAIL_INDEX = "ix_user_email"
 
+# The Redis key whose number every cached tag page carries in its own key
+# (`tags:v{version}:...`); a tag write increments it. The cache and the tests
+# that inspect Redis read the same name.
+TAG_CACHE_VERSION_KEY = "tags:version"
+
 # bcrypt's own ceiling: bytes 73+ of the input are silently ignored by the
 # reference algorithm, and this library raises `ValueError` instead of quietly
 # truncating. It is a byte count, not a character count — the schema that

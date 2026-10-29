@@ -13,11 +13,12 @@ which already imports `UserRead` et al. from here.
 
 import re
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import AfterValidator, EmailStr, Field, field_validator
 
 from app.constants import (
+    EMAIL_MAX_LENGTH,
     FULL_NAME_MAX_LENGTH,
     PASSWORD_MAX_BYTES,
     PASSWORD_MIN_LENGTH,
@@ -38,6 +39,12 @@ def normalize_username(value: str) -> str:
     return value.strip().lower()
 
 
+# `EmailStr` keeps the local part's case and lowercases only the domain, so the
+# lowering is done here: stored lowercase, the plain unique index on
+# `user.email` is case-safe without a functional index or `citext`. Only the
+# *input* types use it — `UserPrivate.email` stays a bare `str`.
+Email = Annotated[EmailStr, AfterValidator(str.lower)]
+
 # Built from `USERNAME_MAX_LENGTH` rather than a literal 50: the schema and
 # the `VARCHAR(50)` column already have to agree, per
 # tests/test_schema_matches_columns.py, so the pattern is derived from the
@@ -46,7 +53,7 @@ _USERNAME_PATTERN = re.compile(rf"^[a-z0-9_.-]{{3,{USERNAME_MAX_LENGTH}}}$")
 
 
 class UserRegister(BaseSchema):
-    """`POST /users/register` body. No email, no confirm-password field."""
+    """`POST /users/register` body. An optional email, no confirm-password field."""
 
     # The bounds here exist so tests/test_schema_matches_columns.py has a
     # MinLen/MaxLen annotation to check against the column width. The real
@@ -56,6 +63,9 @@ class UserRegister(BaseSchema):
     username: str = Field(min_length=1, max_length=USERNAME_MAX_LENGTH)
     password: str = Field(min_length=PASSWORD_MIN_LENGTH)
     full_name: str | None = Field(default=None, max_length=FULL_NAME_MAX_LENGTH)
+    # `max_length` is for tests/test_schema_matches_columns.py, like the bounds
+    # above; email-validator already refuses anything past 254.
+    email: Email | None = Field(default=None, max_length=EMAIL_MAX_LENGTH)
 
     @field_validator("username", mode="after")
     @classmethod
@@ -78,14 +88,21 @@ class UserRegister(BaseSchema):
 
 
 class UserUpdate(BaseSchema):
-    """`PUT /users/me` body — `full_name` only (decision 5 in the auth plan).
+    """`PUT /users/me` body — `full_name`, and optionally `email`.
 
-    No default: an omitted key is 422 (PUT replaces, it does not patch), and
-    an explicit `null` clears the column, which is a legitimate request
-    because `full_name` is nullable.
+    `full_name` has no default: an omitted key is 422 (PUT replaces, it does
+    not patch), and an explicit `null` clears the column, which is a
+    legitimate request because `full_name` is nullable.
+
+    `email` is the one deliberate exception to "PUT replaces" (decision 13 in
+    the testing plan), so clients that only ever sent `full_name` keep
+    working: absent keeps the stored address, `null` clears it, a value sets
+    it. The default of `None` exists only to let the field be omitted — the
+    service tells "absent" from `null` through `model_fields_set`.
     """
 
     full_name: str | None = Field(max_length=FULL_NAME_MAX_LENGTH)
+    email: Email | None = Field(default=None, max_length=EMAIL_MAX_LENGTH)
 
 
 class Token(BaseSchema):
@@ -110,3 +127,18 @@ class UserSummary(BaseSchema):
 class UserRead(UserSummary):
     created_at: datetime
     updated_at: datetime
+
+
+class UserPrivate(UserRead):
+    """A user as shown to themselves: `UserRead` plus their own `email`.
+
+    The response of the three routes that answer the caller about the caller
+    — register, `GET /users/me`, `PUT /users/me`. Never nest it in another
+    schema and never use it on a public route: `UserProfile.user` is a
+    `UserRead` precisely so that address cannot reach the public profile
+    (decision 14 in the testing plan). Output side, so a bare `str`: a stored
+    value that a newer email-validator would reject must not turn
+    `GET /users/me` into a 500.
+    """
+
+    email: str | None

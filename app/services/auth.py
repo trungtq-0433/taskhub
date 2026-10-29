@@ -6,10 +6,10 @@ from fastapi import Depends
 from sqlalchemy.exc import IntegrityError
 
 from app.core.database import SessionDep
-from app.core.exceptions import ConflictError, UnauthorizedError
+from app.core.exceptions import ConflictError, EmailTakenError, UnauthorizedError
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import User
-from app.repositories.user import UserRepository
+from app.repositories.user import UserRepository, is_email_conflict
 from app.schemas.user import Token, UserRegister, normalize_username
 
 
@@ -19,7 +19,7 @@ class AuthService:
         self._users = UserRepository(session)
 
     async def register(self, data: UserRegister) -> User:
-        """Create a user, or 409 if the username is taken.
+        """Create a user, or 409 if the username or the email is taken.
 
         `data.username` is already normalised by `UserRegister`'s own
         validator. The existence check below is what gives an ordinary
@@ -28,6 +28,9 @@ class AuthService:
         the `except IntegrityError` below is what still catches it when two
         requests for the same username interleave between that check and this
         commit — the index is the real guard, this only keeps the message.
+        The same goes for `email`, checked second, so a request whose username
+        *and* email are both taken reports the username. With two unique
+        indexes the race branch reads which one fired from the driver's error.
         """
         if await self._users.get_by_username(data.username) is not None:
             raise ConflictError(
@@ -35,15 +38,21 @@ class AuthService:
                 problem_type="username-taken",
             )
 
+        if data.email is not None and await self._users.get_by_email(data.email) is not None:
+            raise EmailTakenError(data.email)
+
         user = User(
             username=data.username,
             full_name=data.full_name,
+            email=data.email,
             hashed_password=await hash_password(data.password),
         )
         try:
             await self._users.add(user)
             await self._session.commit()
         except IntegrityError as exc:
+            if data.email is not None and is_email_conflict(exc):
+                raise EmailTakenError(data.email) from exc
             raise ConflictError(
                 f"Username {data.username!r} is already taken.",
                 problem_type="username-taken",

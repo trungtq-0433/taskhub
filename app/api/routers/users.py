@@ -9,14 +9,18 @@ from app.api.auth import CurrentUserDep
 from app.api.params import UNAUTHORIZED, ErrorResponses, not_found
 from app.core.handlers import PROBLEM_CONTENT
 from app.schemas.profile import UserProfile
-from app.schemas.user import Token, UserRead, UserRegister, UserUpdate
+from app.schemas.user import Token, UserPrivate, UserRegister, UserUpdate
 from app.services.auth import AuthServiceDep
 from app.services.user import UserServiceDep
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-USERNAME_TAKEN: ErrorResponses = {
-    409: {"content": PROBLEM_CONTENT, "description": "Username already taken"}
+USERNAME_OR_EMAIL_TAKEN: ErrorResponses = {
+    409: {"content": PROBLEM_CONTENT, "description": "Username or email already taken"}
+}
+EMAIL_TAKEN: ErrorResponses = {
+    **UNAUTHORIZED,
+    409: {"content": PROBLEM_CONTENT, "description": "Email already taken"},
 }
 
 
@@ -24,11 +28,11 @@ USERNAME_TAKEN: ErrorResponses = {
     "/register",
     summary="Register a new user",
     status_code=status.HTTP_201_CREATED,
-    responses=USERNAME_TAKEN,
+    responses=USERNAME_OR_EMAIL_TAKEN,
 )
-async def register(payload: UserRegister, service: AuthServiceDep) -> UserRead:
-    """`username` must be unique; a clash answers 409 rather than 422."""
-    return UserRead.model_validate(await service.register(payload))
+async def register(payload: UserRegister, service: AuthServiceDep) -> UserPrivate:
+    """`username` and, if given, `email` must be unique; a clash answers 409, not 422."""
+    return UserPrivate.model_validate(await service.register(payload))
 
 
 @router.post(
@@ -48,14 +52,16 @@ async def login(
 
 
 @router.get("/me", summary="Fetch the current user", responses=UNAUTHORIZED)
-async def get_me(user: CurrentUserDep) -> UserRead:
-    return UserRead.model_validate(user)
+async def get_me(user: CurrentUserDep) -> UserPrivate:
+    return UserPrivate.model_validate(user)
 
 
-@router.put("/me", summary="Update the current user", responses=UNAUTHORIZED)
-async def update_me(payload: UserUpdate, user: CurrentUserDep, service: UserServiceDep) -> UserRead:
-    """`full_name` only — username stays immutable. See `UserUpdate`."""
-    return UserRead.model_validate(await service.update_me(user, payload))
+@router.put("/me", summary="Update the current user", responses=EMAIL_TAKEN)
+async def update_me(
+    payload: UserUpdate, user: CurrentUserDep, service: UserServiceDep
+) -> UserPrivate:
+    """`full_name` and, optionally, `email` — username stays immutable. See `UserUpdate`."""
+    return UserPrivate.model_validate(await service.update_me(user, payload))
 
 
 @router.get("/{username}/profile", summary="Fetch a user's profile", responses=not_found("user"))

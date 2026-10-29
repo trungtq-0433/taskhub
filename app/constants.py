@@ -112,6 +112,19 @@ MAX_ID = 2**31 - 1
 
 USERNAME_MAX_LENGTH = 50
 FULL_NAME_MAX_LENGTH = 100
+# RFC 5321's limit on a forward path; email-validator enforces the same cap, so
+# the column is never wider than the longest address the schema lets through.
+EMAIL_MAX_LENGTH = 254
+# The unique index on `user.email`. The model declares it by this name, and a
+# unique violation naming it is a lost race for an address, which register and
+# `PUT /users/me` answer with `409 email-taken`. Spelled the way
+# NAMING_CONVENTION would have named it, so the database needs no migration.
+USER_EMAIL_INDEX = "ix_user_email"
+
+# The Redis key whose number every cached tag page carries in its own key
+# (`tags:v{version}:...`); a tag write increments it. The cache and the tests
+# that inspect Redis read the same name.
+TAG_CACHE_VERSION_KEY = "tags:version"
 
 # bcrypt's own ceiling: bytes 73+ of the input are silently ignored by the
 # reference algorithm, and this library raises `ValueError` instead of quietly

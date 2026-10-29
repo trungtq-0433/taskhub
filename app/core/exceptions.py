@@ -58,6 +58,15 @@ class ConflictError(AppError):
     detail = "The request conflicts with the current state of the resource."
 
 
+class EmailTakenError(ConflictError):
+    """An address another user already holds. Register and `PUT /users/me` both raise it."""
+
+    problem_type = "email-taken"
+
+    def __init__(self, email: str) -> None:
+        super().__init__(f"Email {email!r} is already registered.")
+
+
 class BusinessRuleError(AppError):
     """The payload is well-formed but the domain refuses it."""
 

@@ -11,16 +11,46 @@ services:
       POSTGRES_USER: taskhub
       POSTGRES_PASSWORD: taskhub
       POSTGRES_DB: taskhub
+    # Every host port here is bound to 127.0.0.1: none of these services has a
+    # real password, so anyone on the same network could otherwise read and
+    # write them. The api container reaches them by service name, unaffected.
     ports:
       # Need a different host port? Put it in docker-compose.override.yml,
       # which compose reads automatically and git ignores.
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U taskhub -d taskhub" ]
       interval: 5s
       timeout: 5s
+      retries: 10
+
+  # Local mail catcher: accepts anything on 1025, shows it at http://localhost:8025.
+  # No auth and no delivery, so it is for development only.
+  mailpit:
+    image: axllent/mailpit:v1.21
+    container_name: taskhub-mailpit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+
+  # Local cache for GET /tags. No auth and no persistence: development only.
+  # The API runs without it too — leave REDIS_URL unset and nothing is cached.
+  redis:
+    image: redis:7.4-alpine
+    container_name: taskhub-redis
+    restart: unless-stopped
+    # Explicit although it is Redis's default: an evicted `tags:version` would
+    # reset to 0 and bring back stale pages (see "Tag cache" in the README).
+    command: [ "redis-server", "--maxmemory-policy", "noeviction" ]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
       retries: 10
 
   api:
@@ -32,11 +62,18 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
+      redis:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql+asyncpg://taskhub:taskhub@db:5432/taskhub
       ENVIRONMENT: ${ENVIRONMENT:-local}
       DEBUG: ${DEBUG:-true}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:

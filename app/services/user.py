@@ -9,12 +9,13 @@ import logging
 from typing import Annotated
 
 from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
 
 from app.core.database import SessionDep
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import EmailTakenError, NotFoundError
 from app.models import User
 from app.repositories.task import TaskRepository
-from app.repositories.user import UserRepository
+from app.repositories.user import UserRepository, is_email_conflict
 from app.schemas.profile import UserProfile
 from app.schemas.task import TaskCounts
 from app.schemas.user import UserRead, UserUpdate, normalize_username
@@ -29,9 +30,31 @@ class UserService:
         self._tasks = TaskRepository(session)
 
     async def update_me(self, user: User, data: UserUpdate) -> User:
-        """Set `full_name` and commit. See `UserUpdate` — `full_name` only."""
+        """Set `full_name`, apply `email` if the client sent the key, and commit.
+
+        See `UserUpdate` for why `email` alone may be absent: `model_fields_set`
+        is what separates "kept" from an explicit `null` ("cleared"). The caller's
+        own current address is not a conflict, so it skips the pre-check; what
+        remains of `IntegrityError` is a genuine race on the unique index — the
+        index is the real guard, the pre-check only keeps the message, as in
+        `AuthService.register`. Username is immutable, so `email-taken` is the
+        only unique violation this route can see.
+        """
         user.full_name = data.full_name
-        await self._session.commit()
+        if "email" in data.model_fields_set:
+            if (
+                data.email is not None
+                and data.email != user.email
+                and await self._users.get_by_email(data.email) is not None
+            ):
+                raise EmailTakenError(data.email)
+            user.email = data.email
+        try:
+            await self._session.commit()
+        except IntegrityError as exc:
+            if data.email is not None and is_email_conflict(exc):
+                raise EmailTakenError(data.email) from exc
+            raise
         await self._session.refresh(user)
         return user
 

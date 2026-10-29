@@ -15,13 +15,7 @@ NOT_FOUND = not_found("tag")
 @router.get("", summary="List tags")
 async def list_tags(service: TagServiceDep, pagination: PaginationDep) -> Page[TagRead]:
     """Ordered by name. `total` counts every match, not just this page."""
-    items, total = await service.list(page=pagination.page, size=pagination.size)
-    return Page.of(
-        [TagRead.model_validate(item) for item in items],
-        total=total,
-        page=pagination.page,
-        size=pagination.size,
-    )
+    return await service.list(page=pagination.page, size=pagination.size)
 
 
 @router.get("/{tag_id}", summary="Fetch one tag", responses=NOT_FOUND)

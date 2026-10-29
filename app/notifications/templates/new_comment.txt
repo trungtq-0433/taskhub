@@ -1,0 +1,4 @@
+{# Plain text, not escaped. Variables: author, task_id, task_title, content. -#}
+{{ author }} commented on task #{{ task_id }} "{{ task_title }}":
+
+{{ content }}

@@ -15,6 +15,7 @@ from app.core.handlers import (
     register_exception_handlers,
     unhandled_exception_handler,
 )
+from app.core.logging import configure_logging
 from app.core.middleware import (
     REQUEST_ID_HEADER,
     RequestIDMiddleware,
@@ -22,10 +23,7 @@ from app.core.middleware import (
 )
 from app.core.redis import close_redis_client
 
-logging.basicConfig(
-    level=logging.DEBUG if settings.debug else logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-)
+configure_logging()
 logger = logging.getLogger(__name__)
 
 # Only the origins are configuration. These are the verbs the routes use and the

@@ -112,6 +112,9 @@ class Settings(BaseSettings):
     # frontends; a wildcard there is a development shortcut that shipped.
     cors_origins: Annotated[list[str], NoDecode] = []
 
+    # --- Logging: optional; unset keeps DEBUG-when-`debug`-else-INFO. uvicorn's level is its own.
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] | None = None
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_cors_origins(cls, value: object) -> object:

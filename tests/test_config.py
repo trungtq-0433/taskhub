@@ -179,3 +179,15 @@ def test_a_cors_origin_that_is_not_an_origin_is_refused(entry: str) -> None:
     """CORS compares `Origin` exactly, so a near-miss would silently match nothing."""
     with pytest.raises(ValidationError, match=re.escape(f"CORS_ORIGINS entry {entry!r}")):
         _settings(cors_origins=entry)
+
+
+def test_log_level_is_unset_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset keeps the DEBUG-follows-`debug` rule, which only `None` can express."""
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+    assert _settings().log_level is None
+
+
+def test_an_unknown_log_level_is_refused() -> None:
+    with pytest.raises(ValidationError, match="log_level"):
+        _settings(log_level="LOUD")

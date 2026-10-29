@@ -196,6 +196,29 @@ that is not listed is still served, only without
 `Access-Control-Allow-Origin`, so the browser withholds the body. It is not
 access control — authentication is.
 
+## Logging
+
+Every line the process writes — the app's, its libraries', uvicorn's server
+lines and its access lines — goes to **stdout** in one format, and nowhere
+else (`docker compose logs api` reads it):
+
+```text
+2026-10-29 10:00:05,678 ERROR    [trace-503] app.core.handlers: Dependency unreachable: ...
+2026-10-29 10:00:05,679 INFO     [trace-503] uvicorn.access: 172.18.0.1:51234 - "GET /api/v1/projects HTTP/1.1" 503
+```
+
+The bracketed value is the request's `X-Request-ID` — the same one the
+response header and an error's `request_id` carry — and `-` outside a request.
+A user's screenshot of an error therefore finds every line it caused with
+`docker compose logs api | grep <request_id>`.
+
+`LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING`, `ERROR`) sets the level for the app
+and its libraries. Unset, it is `DEBUG` when `DEBUG=true` and `INFO` otherwise.
+uvicorn's own loggers keep their level (`--log-level`, INFO by default), so
+`LOG_LEVEL=WARNING` quiets the app but not the access lines. Under `--reload`
+(the dev compose) the reloader's own start and stop lines keep uvicorn's
+format on stderr; the server process's lines follow the format above.
+
 ## Authentication
 
 JWT bearer tokens, issued by the API itself — no third-party identity provider.

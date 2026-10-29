@@ -153,8 +153,8 @@ async def test_request_id_is_echoed_and_minted_per_request(client: AsyncClient) 
 async def test_unhandled_exception_hides_internals() -> None:
     """With DEBUG off, a crash must answer with a problem and leak nothing.
 
-    Built from a fresh app: Starlette short-circuits to an HTML traceback when
-    `debug` is on, so the production path is only observable with it off.
+    Built from a fresh app with `debug` off: under DEBUG the problem's `detail`
+    carries the exception text, so the production path needs it off.
     """
 
     async def explode() -> None:

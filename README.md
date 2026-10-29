@@ -150,10 +150,51 @@ screenshot to a log line. A problem document also forwards whatever response
 headers the failure itself carries — `WWW-Authenticate` on a 401,
 `Allow` on a 405 — rather than dropping them when the body is replaced.
 
+An unhandled crash is a `500` problem too, with `detail` kept generic. Under
+`DEBUG=true` its `detail` holds the exception text instead; there is no HTML
+debug page, and the traceback is in the log either way.
+
 Domain exceptions live in `app/core/exceptions.py`, one class per kind, each
 carrying the status and the `type` suffix it answers with. The handlers that
 render them are in `app/core/handlers.py`; their docstrings say what each
 guarantees.
+
+## CORS
+
+A browser frontend on another origin can call the API once its origin is
+listed in `CORS_ORIGINS`, comma-separated:
+
+```bash
+CORS_ORIGINS=http://localhost:3000,https://app.example.com
+```
+
+Each entry is an exact origin, `scheme://host[:port]` — no path, no trailing
+slash, not a JSON list — or the process refuses to start, naming the entry.
+Unset allows no origin at all, so a deployment that forgot it fails closed;
+`docker-compose.yml` and `.env.example` set the two usual dev-server origins,
+ports 3000 and 5173. `*` allows any origin, and is refused at boot when
+`ENVIRONMENT=production`.
+
+An allowed origin may send `GET`, `POST`, `PUT`, `PATCH` and `DELETE` with the
+`Authorization`, `Content-Type` and `X-Request-ID` headers, and can read the
+`X-Request-ID` response header. Credentials are off: the API authenticates
+with a bearer header, not cookies, so a frontend sets `Authorization` itself
+and must not send `credentials: "include"`. Errors carry the CORS headers
+like any other answer, an unhandled `500` included, so the frontend can read
+the problem document and its `request_id`.
+
+A preflight — an `OPTIONS` carrying `Origin` and
+`Access-Control-Request-Method` — is the one answer that is not a problem
+document. Starlette's `CORSMiddleware` answers it itself: `200 OK` when the
+origin, method and headers are allowed, otherwise `400 text/plain` naming
+what was refused, e.g. `Disallowed CORS origin`. A browser never shows a
+preflight body to script, only its headers. A plain `OPTIONS` is still a
+`405` problem.
+
+CORS is enforced by the browser, not the server: a request from an origin
+that is not listed is still served, only without
+`Access-Control-Allow-Origin`, so the browser withholds the body. It is not
+access control — authentication is.
 
 ## Authentication
 

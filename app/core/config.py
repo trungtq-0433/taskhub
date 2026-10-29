@@ -12,10 +12,11 @@ on a guess. That is deliberate for anything environment-specific or secret.
 """
 
 from functools import lru_cache
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 
@@ -103,6 +104,49 @@ class Settings(BaseSettings):
     # Seconds a cached tag page lives. A tag write orphans every page sooner.
     tag_cache_ttl: int = Field(default=300, ge=1)
 
+    # --- CORS --------------------------------------------------------------
+    # Optional, like SMTP_HOST and REDIS_URL: unset allows no browser origin,
+    # so a deployment that forgot it fails closed. Exact origins, comma-separated
+    # (NoDecode: not the JSON list pydantic-settings would otherwise expect).
+    # `*` is refused in production, where the list should name your own
+    # frontends; a wildcard there is a development shortcut that shipped.
+    cors_origins: Annotated[list[str], NoDecode] = []
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _split_cors_origins(cls, value: object) -> object:
+        """Read `a, b` as two origins; unset or empty is none at all."""
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("cors_origins", mode="after")
+    @classmethod
+    def _require_bare_origins(cls, origins: list[str]) -> list[str]:
+        """Refuse an entry that can never equal the `Origin` a browser sends.
+
+        A browser sends `scheme://host[:port]` and CORSMiddleware compares it
+        as an exact string, so a trailing slash, a path, a missing scheme or a
+        JSON list would match nothing — CORS silently off, found in a browser
+        console weeks later rather than at boot.
+        """
+        for origin in origins:
+            if origin == "*":
+                continue
+            try:
+                parts = urlsplit(origin)
+                valid = (
+                    parts.scheme in ("http", "https")
+                    and bool(parts.hostname)
+                    and origin == f"{parts.scheme}://{parts.netloc}"
+                    and parts.port != 0  # reading it parses it
+                )
+            except ValueError:  # an unparseable port or IPv6 literal
+                valid = False
+            if not valid:
+                raise ValueError(f"CORS_ORIGINS entry {origin!r} is not scheme://host[:port].")
+        return origins
+
     @field_validator("database_url", mode="after")
     @classmethod
     def _require_async_driver(cls, value: str) -> str:
@@ -133,6 +177,13 @@ class Settings(BaseSettings):
         """Debug mode in production leaks tracebacks — fail at boot instead."""
         if self.environment == "production" and self.debug:
             raise ValueError("DEBUG must be false when ENVIRONMENT is production.")
+        return self
+
+    @model_validator(mode="after")
+    def _refuse_wildcard_cors_in_production(self) -> Self:
+        """A wildcard origin in production is a shortcut that shipped — fail at boot instead."""
+        if self.environment == "production" and "*" in self.cors_origins:
+            raise ValueError("CORS_ORIGINS must not contain * when ENVIRONMENT is production.")
         return self
 
 

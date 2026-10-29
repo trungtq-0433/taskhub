@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.api.routers import health
 from app.core.config import settings
 from app.core.database import dispose_engine
 from app.core.handlers import (
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIDMiddleware)
     register_exception_handlers(app)
     app.include_router(api_router, prefix=settings.api_prefix)
+    app.include_router(health.router)
     return app
 
 

@@ -97,6 +97,11 @@ Keep the `127.0.0.1:` prefix: every compose port is bound to the loopback
 interface because none of these services has a real password, and without it
 anyone on your network can reach them.
 
+Compose is for local development only (`--reload`, a bind mount of `./app`,
+`DEBUG=true`). Once the API is up, `docker compose ps` shows `api` as
+`healthy`: the image declares its own healthcheck, see Run the image in
+production.
+
 `ENVIRONMENT` and `DATABASE_URL` have no defaults — miss either and the
 process refuses to start, naming the variable, rather than running on a guess.
 `app/core/config.py` is the whole of the configuration.
@@ -107,6 +112,51 @@ association table — follows the same rule: write it, **import it in
 generated file before applying it — anything Alembic cannot see it believes
 you deleted, and it will write a migration that DROPs the table without
 erroring.
+
+## Run the image in production
+
+The deployable unit is the image the `Dockerfile` builds, not the compose
+file. Its command has no `--reload`:
+
+```bash
+docker build -t taskhub-api .
+docker run --env-file production.env -p 8000:8000 taskhub-api
+```
+
+The env file must set:
+
+| Variable | |
+|---|---|
+| `ENVIRONMENT` | `production`. Closes `/docs`, `/redoc` and `/openapi.json`, and makes the next two rules bite. |
+| `DATABASE_URL` | A `postgresql+asyncpg://` URL to a database the container can reach. |
+| `JWT_SECRET_KEY` | At least 32 characters; see Authentication. |
+| `CORS_ORIGINS` | The frontend origins, comma-separated. Unset allows no browser origin, so a frontend's calls are refused by the browser. See CORS. |
+
+Optional: `SMTP_*` (Email notifications), `REDIS_URL` (Tag cache) and
+`LOG_LEVEL` (Logging). `DEBUG=true` and `CORS_ORIGINS=*` are refused at boot
+when `ENVIRONMENT=production`.
+
+The entrypoint runs `alembic upgrade head` before the server starts, so run
+**one replica**: several started together race on the migration. With more
+than one, move the migration to a separate pre-deploy step first (see the
+comment in the `Dockerfile`).
+
+`GET /health` answers `200 {"status": "ok"}` as long as the process serves
+HTTP. It is liveness only and checks neither Postgres nor Redis: a database
+outage shows up as `503` on real requests, not as a restart-worthy container.
+It sits outside `/api/v1`, needs no token and is not in the OpenAPI document.
+The `Dockerfile`'s `HEALTHCHECK` calls it every 10 seconds, with a 30 second
+start period for the migrations:
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' <container>   # starting, healthy, unhealthy
+```
+
+The probe targets port 8000, the one in the image's command. If you start the
+server on another port, override the `HEALTHCHECK` with it. A successful probe
+is left out of the access log; one that fails still logs.
+
+Logs go to stdout, one format: `docker logs <container>`. See Logging.
 
 ## Layout
 

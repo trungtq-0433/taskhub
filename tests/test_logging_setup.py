@@ -127,3 +127,15 @@ def test_every_line_written_during_a_request_carries_its_id(server_log: ServerLo
     lines = stdout.splitlines()
     assert any("[trace-log-1] app.core.handlers: Dependency unreachable" in line for line in lines)
     assert any("[trace-log-1] uvicorn.access:" in line and line.endswith(" 503") for line in lines)
+
+
+def test_a_successful_health_probe_leaves_no_access_line(server_log: ServerLog) -> None:
+    # The database is unreachable here, so a 200 also shows the probe never needs it.
+    probe = httpx.get(f"{server_log.url}/health", headers={"X-Request-ID": "trace-health"})
+    assert probe.status_code == 200
+    # Access lines are written in request order: once this one is there, the
+    # probe's would have been too.
+    httpx.get(f"{server_log.url}/nope", headers={"X-Request-ID": "trace-after"})
+
+    stdout = wait_for_line(server_log.stdout, "[trace-after] uvicorn.access:")
+    assert "trace-health" not in stdout

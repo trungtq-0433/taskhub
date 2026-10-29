@@ -42,6 +42,24 @@ class RequestIdFilter(logging.Filter):
         return True
 
 
+class HealthCheckAccessFilter(logging.Filter):
+    """Drop the access line of a successful `GET /health`.
+
+    The image probes it every few seconds; logging each one would bury the real
+    traffic. A probe that fails is not dropped, because that line is the one
+    worth reading. Keyed on uvicorn's record args, `(client, method, path,
+    http_version, status)`; `tests/test_logging_setup.py` runs a real uvicorn
+    so an upgrade that reshapes them fails there, not as a flooded log.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) == 5:
+            _, method, path, _, status = args
+            return not (method == "GET" and path == "/health" and status == 200)
+        return True
+
+
 def resolve_level(log_level: str | None, debug: bool) -> str:
     """`LOG_LEVEL` if set, otherwise DEBUG in debug mode and INFO everywhere else."""
     if log_level is not None:
@@ -61,7 +79,10 @@ def configure_logging() -> None:
         {
             "version": 1,
             "disable_existing_loggers": False,
-            "filters": {"request_id": {"()": RequestIdFilter}},
+            "filters": {
+                "request_id": {"()": RequestIdFilter},
+                "health_check": {"()": HealthCheckAccessFilter},
+            },
             "formatters": {"default": {"format": LOG_FORMAT}},
             "handlers": {
                 "stdout": {
@@ -77,7 +98,11 @@ def configure_logging() -> None:
             },
             "loggers": {
                 "uvicorn": {"handlers": [], "propagate": True},
-                "uvicorn.access": {"handlers": [], "propagate": True},
+                "uvicorn.access": {
+                    "handlers": [],
+                    "propagate": True,
+                    "filters": ["health_check"],
+                },
             },
         }
     )

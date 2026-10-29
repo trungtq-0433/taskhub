@@ -11,10 +11,13 @@ services:
       POSTGRES_USER: taskhub
       POSTGRES_PASSWORD: taskhub
       POSTGRES_DB: taskhub
+    # Every host port here is bound to 127.0.0.1: none of these services has a
+    # real password, so anyone on the same network could otherwise read and
+    # write them. The api container reaches them by service name, unaffected.
     ports:
       # Need a different host port? Put it in docker-compose.override.yml,
       # which compose reads automatically and git ignores.
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -30,17 +33,20 @@ services:
     container_name: taskhub-mailpit
     restart: unless-stopped
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
 
   # Local cache for GET /tags. No auth and no persistence: development only.
   # The API runs without it too — leave REDIS_URL unset and nothing is cached.
   redis:
-    image: redis:7-alpine
+    image: redis:7.4-alpine
     container_name: taskhub-redis
     restart: unless-stopped
+    # Explicit although it is Redis's default: an evicted `tags:version` would
+    # reset to 0 and bring back stale pages (see "Tag cache" in the README).
+    command: [ "redis-server", "--maxmemory-policy", "noeviction" ]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s

@@ -87,12 +87,15 @@ it, so it stays yours:
 services:
   db:
     ports: !override        # replaces the port list instead of adding to it
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
 ```
 
 Then point `DATABASE_URL` in `.env` at the same host port. Only the host side
 moves; inside the compose network the database still listens on 5432. The same
-file can remap Mailpit's `1025:1025` and `8025:8025` the same way.
+file can remap Mailpit's `1025` and `8025` and Redis's `6379` the same way.
+Keep the `127.0.0.1:` prefix: every compose port is bound to the loopback
+interface because none of these services has a real password, and without it
+anyone on your network can reach them.
 
 `ENVIRONMENT` and `DATABASE_URL` have no defaults — miss either and the
 process refuses to start, naming the variable, rather than running on a guess.
@@ -389,7 +392,8 @@ retries) is logged at WARNING and skipped: reads go to Postgres and writes
 still succeed. The one cost is that a write whose `INCR` failed can leave the
 list stale until the TTL runs out. Run Redis with `maxmemory-policy noeviction`
 (or no `maxmemory`): if `tags:version` alone is evicted it resets to 0 and old
-v0 pages can be served for up to one TTL.
+v0 pages can be served for up to one TTL. The compose Redis sets it
+explicitly.
 
 To run without it, leave `REDIS_URL` unset — no connection is ever attempted.
 The compose Redis has no password and is for local development only; in

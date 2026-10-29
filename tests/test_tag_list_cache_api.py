@@ -77,7 +77,7 @@ async def test_a_cached_page_is_byte_identical_to_an_uncached_one(
     miss = await api_client.get(BASE)
     hit = await api_client.get(BASE)
 
-    assert await cache.client.exists("tags:v0:p1:s50") == 1, "the second read must be a hit"
+    assert await cache.client.exists("tags:v0:p1:s20") == 1, "the second read must be a hit"
     assert uncached.content == miss.content == hit.content
 
 

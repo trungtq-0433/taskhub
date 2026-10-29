@@ -3,12 +3,12 @@
 from typing import Annotated
 
 from fastapi import Depends
-from fastapi_pagination import Page, Params
 
 from app.core.database import SessionDep
 from app.core.exceptions import ConflictError, NotFoundError
 from app.models import Tag
 from app.repositories.tag import TagRepository
+from app.schemas.base import Page
 from app.schemas.tag import TagCreate, TagRead, TagUpdate
 from app.services.tag_cache import TagListCache, TagListCacheDep
 
@@ -25,20 +25,19 @@ class TagService:
             raise NotFoundError(f"Tag {tag_id} does not exist.", problem_type="tag-not-found")
         return tag
 
-    async def list(self, *, params: Params) -> Page[TagRead]:
+    async def list(self, *, page: int, size: int) -> Page[TagRead]:
         """One page, from the cache when there is one and it can answer."""
         if self._cache is None:
-            return await self._load_page(params)
-        return await self._cache.get_or_load(params, lambda: self._load_page(params))
+            return await self._load_page(page, size)
+        return await self._cache.get_or_load(page, size, lambda: self._load_page(page, size))
 
-    async def _load_page(self, params: Params) -> Page[TagRead]:
-        """Shaped into `TagRead` here, not in the router as the task lists are:
-        the cache stores what this returns, and an ORM row does not serialize."""
-        page = await self._tags.paginate(params)
-        return Page[TagRead].create(
-            items=[TagRead.model_validate(item) for item in page.items],
-            params=params,
-            total=page.total,
+    async def _load_page(self, page: int, size: int) -> Page[TagRead]:
+        items = await self._tags.list(offset=(page - 1) * size, limit=size)
+        return Page.of(
+            [TagRead.model_validate(item) for item in items],
+            total=await self._tags.count(),
+            page=page,
+            size=size,
         )
 
     async def _commit(self) -> None:

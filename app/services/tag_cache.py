@@ -16,12 +16,12 @@ from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 from fastapi import Depends
-from fastapi_pagination import Page, Params
 from pydantic import ValidationError
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from app.core.redis import get_redis_client
+from app.schemas.base import Page
 from app.schemas.tag import TagRead
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class TagListCache:
         self.client = client
 
     async def get_or_load(
-        self, params: Params, load: Callable[[], Awaitable[Page[TagRead]]]
+        self, page: int, size: int, load: Callable[[], Awaitable[Page[TagRead]]]
     ) -> Page[TagRead]:
         """The cached page, or `load()`'s result, stored for next time.
 
@@ -50,7 +50,7 @@ class TagListCache:
         try:
             # redis-py's stubs type replies as bytes; `make_client` decodes them.
             version = str(await self.client.get(VERSION_KEY) or "0")
-            key = f"tags:v{version}:p{params.page}:s{params.size}"
+            key = f"tags:v{version}:p{page}:s{size}"
             cached = await self.client.get(key)
         except REDIS_DOWN as exc:
             self._warn(exc)

@@ -1,11 +1,9 @@
 """Tag endpoints. Routing and shaping only — no business logic."""
 
-from typing import Annotated
+from fastapi import APIRouter, status
 
-from fastapi import APIRouter, Depends, status
-from fastapi_pagination import Page
-
-from app.api.params import CONFLICT, BoundedParams, not_found
+from app.api.params import CONFLICT, PaginationDep, not_found
+from app.schemas.base import Page
 from app.schemas.tag import TagCreate, TagRead, TagUpdate
 from app.services.tag import TagServiceDep
 
@@ -15,14 +13,9 @@ NOT_FOUND = not_found("tag")
 
 
 @router.get("", summary="List tags")
-async def list_tags(
-    service: TagServiceDep, params: Annotated[BoundedParams, Depends()]
-) -> Page[TagRead]:
-    """Ordered by name. `total` counts every match, not just this page.
-
-    `page` goes up to 100,000; `size` defaults to 50, at most 100.
-    """
-    return await service.list(params=params)
+async def list_tags(service: TagServiceDep, pagination: PaginationDep) -> Page[TagRead]:
+    """Ordered by name. `total` counts every match, not just this page."""
+    return await service.list(page=pagination.page, size=pagination.size)
 
 
 @router.get("/{tag_id}", summary="Fetch one tag", responses=NOT_FOUND)

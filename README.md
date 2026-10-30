@@ -267,7 +267,10 @@ and its libraries. Unset, it is `DEBUG` when `DEBUG=true` and `INFO` otherwise.
 uvicorn's own loggers keep their level (`--log-level`, INFO by default), so
 `LOG_LEVEL=WARNING` quiets the app but not the access lines. Under `--reload`
 (the dev compose) the reloader's own start and stop lines keep uvicorn's
-format on stderr; the server process's lines follow the format above.
+format on stderr; the server process's lines follow the format above. The
+same goes for the few migration lines a container prints at start: the
+entrypoint runs `alembic upgrade head` before the app is loaded, so they keep
+`alembic.ini`'s format on stderr, ahead of any request.
 
 ## Authentication
 

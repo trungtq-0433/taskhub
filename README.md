@@ -222,7 +222,8 @@ Each entry is an exact origin, `scheme://host[:port]` — no path, no trailing
 slash, not a JSON list — or the process refuses to start, naming the entry.
 Unset allows no origin at all, so a deployment that forgot it fails closed;
 `docker-compose.yml` and `.env.example` set the two usual dev-server origins,
-ports 3000 and 5173. `*` allows any origin, and is refused at boot when
+ports 3000 and 5173; under compose, an empty `CORS_ORIGINS=` turns them off
+rather than falling back to them. `*` allows any origin, and is refused at boot when
 `ENVIRONMENT=production`.
 
 An allowed origin may send `GET`, `POST`, `PUT`, `PATCH` and `DELETE` with the

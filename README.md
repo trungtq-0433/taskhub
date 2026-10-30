@@ -168,7 +168,7 @@ app/
 ├── schemas/        request and response DTOs
 ├── models/         SQLAlchemy entities
 ├── notifications/  what an email says: builders and their Jinja2 templates
-└── core/           config, database, exceptions, handlers, mail, redis, middleware
+└── core/           config, database, exceptions, handlers, logging, mail, redis, middleware
 ```
 
 The rule that keeps the layers apart: **routers hold no business logic and

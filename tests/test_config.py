@@ -1,5 +1,6 @@
 """Settings resolution and the guards that stop a misconfigured boot."""
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -141,3 +142,52 @@ def test_redis_is_optional_and_off_by_default(monkeypatch: pytest.MonkeyPatch) -
     assert cfg.redis_url is None
     assert cfg.redis_timeout == 0.5
     assert cfg.tag_cache_ttl == 300
+
+
+def test_cors_origins_are_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset allows no browser origin at all, so a forgotten value fails closed."""
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+
+    assert _settings().cors_origins == []
+
+
+def test_cors_origins_are_read_comma_separated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Through the env source, which on its own would demand JSON for a list."""
+    monkeypatch.setenv("CORS_ORIGINS", "http://localhost:3000, https://app.example.com")
+
+    assert _settings().cors_origins == ["http://localhost:3000", "https://app.example.com"]
+
+
+def test_a_wildcard_cors_origin_is_refused_in_production() -> None:
+    with pytest.raises(ValidationError, match=r"CORS_ORIGINS must not contain \*"):
+        _settings(environment="production", cors_origins="*")
+
+    # ...and is fine anywhere else.
+    assert _settings(environment="local", cors_origins="*").cors_origins == ["*"]
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "http://localhost:3000/",
+        "localhost:3000",
+        '["http://localhost:3000"]',
+        "http://localhost:3000/app",
+    ],
+)
+def test_a_cors_origin_that_is_not_an_origin_is_refused(entry: str) -> None:
+    """CORS compares `Origin` exactly, so a near-miss would silently match nothing."""
+    with pytest.raises(ValidationError, match=re.escape(f"CORS_ORIGINS entry {entry!r}")):
+        _settings(cors_origins=entry)
+
+
+def test_log_level_is_unset_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset keeps the DEBUG-follows-`debug` rule, which only `None` can express."""
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+    assert _settings().log_level is None
+
+
+def test_an_unknown_log_level_is_refused() -> None:
+    with pytest.raises(ValidationError, match="log_level"):
+        _settings(log_level="LOUD")

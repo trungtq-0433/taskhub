@@ -71,6 +71,7 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-local}
       DEBUG: ${DEBUG:-true}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS-http://localhost:3000,http://localhost:5173}
       SMTP_HOST: mailpit
       SMTP_PORT: 1025
       REDIS_URL: redis://redis:6379/0

@@ -97,6 +97,11 @@ Keep the `127.0.0.1:` prefix: every compose port is bound to the loopback
 interface because none of these services has a real password, and without it
 anyone on your network can reach them.
 
+Compose is for local development only (`--reload`, a bind mount of `./app`,
+`DEBUG=true`). Once the API is up, `docker compose ps` shows `api` as
+`healthy`: the image declares its own healthcheck, see Run the image in
+production.
+
 `ENVIRONMENT` and `DATABASE_URL` have no defaults — miss either and the
 process refuses to start, naming the variable, rather than running on a guess.
 `app/core/config.py` is the whole of the configuration.
@@ -108,6 +113,51 @@ generated file before applying it — anything Alembic cannot see it believes
 you deleted, and it will write a migration that DROPs the table without
 erroring.
 
+## Run the image in production
+
+The deployable unit is the image the `Dockerfile` builds, not the compose
+file. Its command has no `--reload`:
+
+```bash
+docker build -t taskhub-api .
+docker run --env-file production.env -p 8000:8000 taskhub-api
+```
+
+The env file must set:
+
+| Variable | |
+|---|---|
+| `ENVIRONMENT` | `production`. Closes `/docs`, `/redoc` and `/openapi.json`, and makes the next two rules bite. |
+| `DATABASE_URL` | A `postgresql+asyncpg://` URL to a database the container can reach. |
+| `JWT_SECRET_KEY` | At least 32 characters; see Authentication. |
+| `CORS_ORIGINS` | The frontend origins, comma-separated. Unset allows no browser origin, so a frontend's calls are refused by the browser. See CORS. |
+
+Optional: `SMTP_*` (Email notifications), `REDIS_URL` (Tag cache) and
+`LOG_LEVEL` (Logging). `DEBUG=true` and `CORS_ORIGINS=*` are refused at boot
+when `ENVIRONMENT=production`.
+
+The entrypoint runs `alembic upgrade head` before the server starts, so run
+**one replica**: several started together race on the migration. With more
+than one, move the migration to a separate pre-deploy step first (see the
+comment in the `Dockerfile`).
+
+`GET /health` answers `200 {"status": "ok"}` as long as the process serves
+HTTP. It is liveness only and checks neither Postgres nor Redis: a database
+outage shows up as `503` on real requests, not as a restart-worthy container.
+It sits outside `/api/v1`, needs no token and is not in the OpenAPI document.
+The `Dockerfile`'s `HEALTHCHECK` calls it every 10 seconds, with a 30 second
+start period for the migrations:
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' <container>   # starting, healthy, unhealthy
+```
+
+The probe targets port 8000, the one in the image's command. If you start the
+server on another port, override the `HEALTHCHECK` with it. A successful probe
+is left out of the access log; one that fails still logs.
+
+Logs go to stdout, one format: `docker logs <container>`. See Logging.
+
 ## Layout
 
 ```
@@ -118,7 +168,7 @@ app/
 ├── schemas/        request and response DTOs
 ├── models/         SQLAlchemy entities
 ├── notifications/  what an email says: builders and their Jinja2 templates
-└── core/           config, database, exceptions, handlers, mail, redis, middleware
+└── core/           config, database, exceptions, handlers, logging, mail, redis, middleware
 ```
 
 The rule that keeps the layers apart: **routers hold no business logic and
@@ -150,10 +200,78 @@ screenshot to a log line. A problem document also forwards whatever response
 headers the failure itself carries — `WWW-Authenticate` on a 401,
 `Allow` on a 405 — rather than dropping them when the body is replaced.
 
+An unhandled crash is a `500` problem too, with `detail` kept generic. Under
+`DEBUG=true` its `detail` holds the exception text instead; there is no HTML
+debug page, and the traceback is in the log either way.
+
 Domain exceptions live in `app/core/exceptions.py`, one class per kind, each
 carrying the status and the `type` suffix it answers with. The handlers that
 render them are in `app/core/handlers.py`; their docstrings say what each
 guarantees.
+
+## CORS
+
+A browser frontend on another origin can call the API once its origin is
+listed in `CORS_ORIGINS`, comma-separated:
+
+```bash
+CORS_ORIGINS=http://localhost:3000,https://app.example.com
+```
+
+Each entry is an exact origin, `scheme://host[:port]` — no path, no trailing
+slash, not a JSON list — or the process refuses to start, naming the entry.
+Unset allows no origin at all, so a deployment that forgot it fails closed;
+`docker-compose.yml` and `.env.example` set the two usual dev-server origins,
+ports 3000 and 5173; under compose, an empty `CORS_ORIGINS=` turns them off
+rather than falling back to them. `*` allows any origin, and is refused at boot when
+`ENVIRONMENT=production`.
+
+An allowed origin may send `GET`, `POST`, `PUT`, `PATCH` and `DELETE` with the
+`Authorization`, `Content-Type` and `X-Request-ID` headers, and can read the
+`X-Request-ID` response header. Credentials are off: the API authenticates
+with a bearer header, not cookies, so a frontend sets `Authorization` itself
+and must not send `credentials: "include"`. Errors carry the CORS headers
+like any other answer, an unhandled `500` included, so the frontend can read
+the problem document and its `request_id`.
+
+A preflight — an `OPTIONS` carrying `Origin` and
+`Access-Control-Request-Method` — is the one answer that is not a problem
+document. Starlette's `CORSMiddleware` answers it itself: `200 OK` when the
+origin, method and headers are allowed, otherwise `400 text/plain` naming
+what was refused, e.g. `Disallowed CORS origin`. A browser never shows a
+preflight body to script, only its headers. A plain `OPTIONS` is still a
+`405` problem.
+
+CORS is enforced by the browser, not the server: a request from an origin
+that is not listed is still served, only without
+`Access-Control-Allow-Origin`, so the browser withholds the body. It is not
+access control — authentication is.
+
+## Logging
+
+Every line the process writes — the app's, its libraries', uvicorn's server
+lines and its access lines — goes to **stdout** in one format, and nowhere
+else (`docker compose logs api` reads it):
+
+```text
+2026-10-29 10:00:05,678 ERROR    [trace-503] app.core.handlers: Dependency unreachable: ...
+2026-10-29 10:00:05,679 INFO     [trace-503] uvicorn.access: 172.18.0.1:51234 - "GET /api/v1/projects HTTP/1.1" 503
+```
+
+The bracketed value is the request's `X-Request-ID` — the same one the
+response header and an error's `request_id` carry — and `-` outside a request.
+A user's screenshot of an error therefore finds every line it caused with
+`docker compose logs api | grep <request_id>`.
+
+`LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING`, `ERROR`) sets the level for the app
+and its libraries. Unset, it is `DEBUG` when `DEBUG=true` and `INFO` otherwise.
+uvicorn's own loggers keep their level (`--log-level`, INFO by default), so
+`LOG_LEVEL=WARNING` quiets the app but not the access lines. Under `--reload`
+(the dev compose) the reloader's own start and stop lines keep uvicorn's
+format on stderr; the server process's lines follow the format above. The
+same goes for the few migration lines a container prints at start: the
+entrypoint runs `alembic upgrade head` before the app is loaded, so they keep
+`alembic.ini`'s format on stderr, ahead of any request.
 
 ## Authentication
 
@@ -424,7 +542,8 @@ over `ASGITransport` (the `api_client` fixture) instead. The app is async on
 asyncpg, and that client runs the app on a loop of its own, which cannot share
 the test's connection and its rolled-back transaction — FastAPI's "Async
 Tests" guide takes the same route. The Register → Create Task flow is
-`tests/test_register_and_create_task_flow.py`.
+`tests/test_register_and_create_task_flow.py`; `tests/test_full_api_flow.py`
+chains the whole API, from registration to deleting a comment.
 
 The tag cache tests use a real Redis (`docker compose up -d redis`). They run
 against db 15 of the Redis in `REDIS_URL`, emptying it around each test, or

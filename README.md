@@ -196,7 +196,9 @@ GET /api/v1/projects/99  →  404   { "type": "urn:taskhub:problem:project-not-f
 
 `type` is the part clients branch on. Every response also carries an
 `X-Request-ID` header, repeated in the problem body, which is what ties a user's
-screenshot to a log line. A problem document also forwards whatever response
+screenshot to a log line. A client may send its own; it is kept only when it
+matches `[A-Za-z0-9._-]{1,128}` and replaced with a fresh id otherwise, because
+it is printed into every log line. A problem document also forwards whatever response
 headers the failure itself carries — `WWW-Authenticate` on a 401,
 `Allow` on a 405 — rather than dropping them when the body is replaced.
 

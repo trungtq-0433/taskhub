@@ -8,6 +8,7 @@ Written as raw ASGI rather than `BaseHTTPMiddleware`: the latter buffers
 responses and breaks streaming, which is a steep price for setting one header.
 """
 
+import re
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from uuid import uuid4
@@ -18,6 +19,11 @@ from starlette.responses import Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 REQUEST_ID_HEADER = "x-request-id"
+
+# What an inbound id may look like. It is printed into every log line, so one
+# carrying `]`, spaces or a level name would forge log content; anything outside
+# this shape is replaced with a fresh id rather than trusted.
+REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
 # Readable from anywhere, including exception handlers that never see the Request.
 request_id_ctx: ContextVar[str | None] = ContextVar("request_id", default=None)
@@ -39,7 +45,7 @@ def get_request_id(request: Request | None = None) -> str | None:
 
 
 class RequestIDMiddleware:
-    """Honour an inbound `X-Request-ID`, or mint one, and echo it back."""
+    """Honour a well-formed inbound `X-Request-ID`, or mint one, and echo it back."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -50,8 +56,8 @@ class RequestIDMiddleware:
             return
 
         headers = {key.decode("latin-1").lower(): value for key, value in scope["headers"]}
-        inbound = headers.get(REQUEST_ID_HEADER)
-        request_id = inbound.decode("latin-1")[:128] if inbound else uuid4().hex
+        inbound = headers.get(REQUEST_ID_HEADER, b"").decode("latin-1")
+        request_id = inbound if REQUEST_ID_PATTERN.fullmatch(inbound) else uuid4().hex
 
         token = request_id_ctx.set(request_id)
         scope.setdefault("state", {})["request_id"] = request_id

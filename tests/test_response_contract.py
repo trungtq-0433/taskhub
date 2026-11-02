@@ -5,6 +5,7 @@ route mounted here. That keeps these tests about the contract itself rather
 than about whichever endpoint happens to exist.
 """
 
+import re
 from http import HTTPStatus
 
 import pytest
@@ -148,6 +149,18 @@ async def test_request_id_is_echoed_and_minted_per_request(client: AsyncClient) 
 
     supplied = await client.get(SAMPLE_PATH, headers={"X-Request-ID": "trace-abc"})
     assert supplied.headers["x-request-id"] == "trace-abc"
+
+
+@pytest.mark.parametrize(
+    "supplied",
+    ["x] ERROR    [-] app.core.handlers: forged", "a" * 129, "trace abc"],
+    ids=["forged-log-line", "too-long", "space"],
+)
+async def test_a_malformed_request_id_is_replaced(client: AsyncClient, supplied: str) -> None:
+    """The id is printed into every log line, so only `[A-Za-z0-9._-]{1,128}` is kept."""
+    response = await client.get(SAMPLE_PATH, headers={"X-Request-ID": supplied})
+
+    assert re.fullmatch(r"[0-9a-f]{32}", response.headers["x-request-id"])
 
 
 async def test_unhandled_exception_hides_internals() -> None:

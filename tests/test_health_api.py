@@ -2,7 +2,7 @@
 
 from httpx import AsyncClient
 
-from app.core.middleware import REQUEST_ID_HEADER
+from app.constants import REQUEST_ID_HEADER
 from app.main import app
 
 

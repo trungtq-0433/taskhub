@@ -1,4 +1,4 @@
-"""Values the database layer and the API layer both have to agree on.
+"""Values two parts of the app have to agree on — mostly the database and API layers.
 
 A value that appears in a model and again in a schema is a value that can drift:
 change the model's default and the schema keeps validating against the old set,
@@ -158,3 +158,13 @@ class UserRole(StrEnum):
 # Wider than the longest value UserRole holds today ("admin", 5), same
 # reasoning as TASK_STATUS_MAX_LENGTH.
 USER_ROLE_MAX_LENGTH = 20
+
+# The correlation id header. The middleware sets it, CORS lets a browser send
+# and read it, and every error body repeats its value.
+REQUEST_ID_HEADER = "x-request-id"
+
+# What CORS lets a browser on another origin do: the verbs the routes use and
+# the headers a client sends. Not settings — only the origins vary by
+# environment, and those are `CORS_ORIGINS`.
+CORS_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+CORS_HEADERS = ["Authorization", "Content-Type", REQUEST_ID_HEADER]

@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.api.routers import health
+from app.constants import CORS_HEADERS, CORS_METHODS, REQUEST_ID_HEADER
 from app.core.config import settings
 from app.core.database import dispose_engine
 from app.core.handlers import (
@@ -17,21 +18,11 @@ from app.core.handlers import (
     unhandled_exception_handler,
 )
 from app.core.logging import configure_logging
-from app.core.middleware import (
-    REQUEST_ID_HEADER,
-    RequestIDMiddleware,
-    UnhandledExceptionMiddleware,
-)
+from app.core.middleware import RequestIDMiddleware, UnhandledExceptionMiddleware
 from app.core.redis import close_redis_client
 
 configure_logging()
 logger = logging.getLogger(__name__)
-
-# Only the origins are configuration. These are the verbs the routes use and the
-# headers a client sends; `X-Request-ID` is exposed so a frontend can read it
-# and quote it in a bug report. No credentials: auth is a bearer header, not cookies.
-CORS_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
-CORS_HEADERS = ["Authorization", "Content-Type", REQUEST_ID_HEADER]
 
 
 @asynccontextmanager
@@ -78,9 +69,11 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
+        # No credentials: auth is a bearer header, not cookies.
         allow_credentials=False,
         allow_methods=CORS_METHODS,
         allow_headers=CORS_HEADERS,
+        # So a frontend can read the id and quote it in a bug report.
         expose_headers=[REQUEST_ID_HEADER],
     )
     app.add_middleware(RequestIDMiddleware)

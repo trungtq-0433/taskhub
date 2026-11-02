@@ -18,7 +18,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-REQUEST_ID_HEADER = "x-request-id"
+from app.constants import REQUEST_ID_HEADER
 
 # What an inbound id may look like. It is printed into every log line, so one
 # carrying `]`, spaces or a level name would forge log content; anything outside

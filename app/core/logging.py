@@ -27,7 +27,9 @@ Three details that are easy to undo:
 
 import logging
 import logging.config
+from http import HTTPStatus
 
+from app.constants import HEALTH_PATH
 from app.core.config import settings
 from app.core.middleware import request_id_ctx
 
@@ -56,7 +58,7 @@ class HealthCheckAccessFilter(logging.Filter):
         args = record.args
         if isinstance(args, tuple) and len(args) == 5:
             _, method, path, _, status = args
-            return not (method == "GET" and path == "/health" and status == 200)
+            return not (method == "GET" and path == HEALTH_PATH and status == HTTPStatus.OK)
         return True
 
 

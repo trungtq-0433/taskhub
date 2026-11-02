@@ -168,3 +168,7 @@ REQUEST_ID_HEADER = "x-request-id"
 # environment, and those are `CORS_ORIGINS`.
 CORS_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 CORS_HEADERS = ["Authorization", "Content-Type", REQUEST_ID_HEADER]
+
+# The liveness route, and the path the access-log filter drops its probes by.
+# The Dockerfile's HEALTHCHECK spells it out too: change it there as well.
+HEALTH_PATH = "/health"

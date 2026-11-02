@@ -2,10 +2,12 @@
 
 from fastapi import APIRouter
 
+from app.constants import HEALTH_PATH
+
 router = APIRouter(include_in_schema=False)
 
 
-@router.get("/health")
+@router.get(HEALTH_PATH)
 async def health() -> dict[str, str]:
     """200 while the process serves HTTP — liveness, not readiness.
 

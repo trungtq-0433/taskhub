@@ -49,12 +49,15 @@ def test_unknown_environment_is_rejected() -> None:
         _settings(environment="prod")  # the value is `production`
 
 
-def test_debug_is_refused_in_production() -> None:
-    with pytest.raises(ValidationError, match="DEBUG must be false"):
-        _settings(environment="production", debug=True)
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_debug_is_refused_in_staging_and_production(environment: str) -> None:
+    with pytest.raises(
+        ValidationError, match=f"DEBUG must be false when ENVIRONMENT is {environment}"
+    ):
+        _settings(environment=environment, debug=True)
 
     # ...and is fine anywhere else.
-    assert _settings(environment="staging", debug=True).debug
+    assert _settings(environment="local", debug=True).debug
 
 
 @pytest.mark.parametrize("scheme", ["postgres", "postgresql"])
@@ -158,9 +161,13 @@ def test_cors_origins_are_read_comma_separated(monkeypatch: pytest.MonkeyPatch) 
     assert _settings().cors_origins == ["http://localhost:3000", "https://app.example.com"]
 
 
-def test_a_wildcard_cors_origin_is_refused_in_production() -> None:
-    with pytest.raises(ValidationError, match=r"CORS_ORIGINS must not contain \*"):
-        _settings(environment="production", cors_origins="*")
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_a_wildcard_cors_origin_is_refused_in_staging_and_production(environment: str) -> None:
+    with pytest.raises(
+        ValidationError,
+        match=rf"CORS_ORIGINS must not contain \* when ENVIRONMENT is {environment}",
+    ):
+        _settings(environment=environment, cors_origins="*")
 
     # ...and is fine anywhere else.
     assert _settings(environment="local", cors_origins="*").cors_origins == ["*"]

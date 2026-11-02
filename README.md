@@ -134,7 +134,7 @@ The env file must set:
 
 Optional: `SMTP_*` (Email notifications), `REDIS_URL` (Tag cache) and
 `LOG_LEVEL` (Logging). `DEBUG=true` and `CORS_ORIGINS=*` are refused at boot
-when `ENVIRONMENT=production`.
+when `ENVIRONMENT` is `staging` or `production`: both face the internet.
 
 The entrypoint runs `alembic upgrade head` before the server starts, so run
 **one replica**: several started together race on the migration. With more
@@ -204,7 +204,8 @@ headers the failure itself carries — `WWW-Authenticate` on a 401,
 
 An unhandled crash is a `500` problem too, with `detail` kept generic. Under
 `DEBUG=true` its `detail` holds the exception text instead; there is no HTML
-debug page, and the traceback is in the log either way.
+debug page, and the traceback is in the log either way. That is why `DEBUG=true`
+is refused at boot in `staging` and `production`.
 
 Domain exceptions live in `app/core/exceptions.py`, one class per kind, each
 carrying the status and the `type` suffix it answers with. The handlers that
@@ -226,7 +227,7 @@ Unset allows no origin at all, so a deployment that forgot it fails closed;
 `docker-compose.yml` and `.env.example` set the two usual dev-server origins,
 ports 3000 and 5173; under compose, an empty `CORS_ORIGINS=` turns them off
 rather than falling back to them. `*` allows any origin, and is refused at boot when
-`ENVIRONMENT=production`.
+`ENVIRONMENT` is `staging` or `production`.
 
 An allowed origin may send `GET`, `POST`, `PUT`, `PATCH` and `DELETE` with the
 `Authorization`, `Content-Type` and `X-Request-ID` headers, and can read the

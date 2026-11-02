@@ -108,8 +108,8 @@ class Settings(BaseSettings):
     # Optional, like SMTP_HOST and REDIS_URL: unset allows no browser origin,
     # so a deployment that forgot it fails closed. Exact origins, comma-separated
     # (NoDecode: not the JSON list pydantic-settings would otherwise expect).
-    # `*` is refused in production, where the list should name your own
-    # frontends; a wildcard there is a development shortcut that shipped.
+    # `*` is refused in staging and production, where the list should name your
+    # own frontends; a wildcard there is a development shortcut that shipped.
     cors_origins: Annotated[list[str], NoDecode] = []
 
     # --- Logging: optional; unset keeps DEBUG-when-`debug`-else-INFO. uvicorn's level is its own.
@@ -176,17 +176,15 @@ class Settings(BaseSettings):
         return url.render_as_string(hide_password=False)
 
     @model_validator(mode="after")
-    def _refuse_debug_in_production(self) -> Self:
-        """Debug mode in production leaks tracebacks — fail at boot instead."""
-        if self.environment == "production" and self.debug:
-            raise ValueError("DEBUG must be false when ENVIRONMENT is production.")
-        return self
-
-    @model_validator(mode="after")
-    def _refuse_wildcard_cors_in_production(self) -> Self:
-        """A wildcard origin in production is a shortcut that shipped — fail at boot instead."""
-        if self.environment == "production" and "*" in self.cors_origins:
-            raise ValueError("CORS_ORIGINS must not contain * when ENVIRONMENT is production.")
+    def _refuse_dev_shortcuts_where_public(self) -> Self:
+        """Staging and production are public: DEBUG (leaks exception text) and `*` fail boot."""
+        environment = self.environment
+        if environment not in ("staging", "production"):
+            return self
+        if self.debug:
+            raise ValueError(f"DEBUG must be false when ENVIRONMENT is {environment}.")
+        if "*" in self.cors_origins:
+            raise ValueError(f"CORS_ORIGINS must not contain * when ENVIRONMENT is {environment}.")
         return self
 
 

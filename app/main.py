@@ -5,18 +5,23 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.api.routers import health
+from app.constants import CORS_HEADERS, CORS_METHODS, REQUEST_ID_HEADER
 from app.core.config import settings
 from app.core.database import dispose_engine
-from app.core.handlers import DEFAULT_ERROR_RESPONSES, register_exception_handlers
-from app.core.middleware import RequestIDMiddleware
+from app.core.handlers import (
+    DEFAULT_ERROR_RESPONSES,
+    register_exception_handlers,
+    unhandled_exception_handler,
+)
+from app.core.logging import configure_logging
+from app.core.middleware import RequestIDMiddleware, UnhandledExceptionMiddleware
 from app.core.redis import close_redis_client
 
-logging.basicConfig(
-    level=logging.DEBUG if settings.debug else logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-)
+configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -54,11 +59,27 @@ def create_app() -> FastAPI:
         responses=DEFAULT_ERROR_RESPONSES,
     )
 
-    # Outermost middleware: the correlation id must exist before anything
-    # downstream can fail and try to report it.
+    # Each add_middleware call wraps the ones before it, so the stack is built
+    # innermost first. Outermost, the correlation id must exist before anything
+    # downstream can fail and try to report it. CORS sits inside it, and the
+    # catch-all inside CORS: an unhandled 500 then leaves through both, with the
+    # headers a browser needs to read it, rather than from ServerErrorMiddleware
+    # outside them (see UnhandledExceptionMiddleware).
+    app.add_middleware(UnhandledExceptionMiddleware, handler=unhandled_exception_handler)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        # No credentials: auth is a bearer header, not cookies.
+        allow_credentials=False,
+        allow_methods=CORS_METHODS,
+        allow_headers=CORS_HEADERS,
+        # So a frontend can read the id and quote it in a bug report.
+        expose_headers=[REQUEST_ID_HEADER],
+    )
     app.add_middleware(RequestIDMiddleware)
     register_exception_handlers(app)
     app.include_router(api_router, prefix=settings.api_prefix)
+    app.include_router(health.router)
     return app
 
 

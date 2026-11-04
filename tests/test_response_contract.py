@@ -5,6 +5,7 @@ route mounted here. That keeps these tests about the contract itself rather
 than about whichever endpoint happens to exist.
 """
 
+import re
 from http import HTTPStatus
 
 import pytest
@@ -150,11 +151,23 @@ async def test_request_id_is_echoed_and_minted_per_request(client: AsyncClient) 
     assert supplied.headers["x-request-id"] == "trace-abc"
 
 
+@pytest.mark.parametrize(
+    "supplied",
+    ["x] ERROR    [-] app.core.handlers: forged", "a" * 129, "trace abc"],
+    ids=["forged-log-line", "too-long", "space"],
+)
+async def test_a_malformed_request_id_is_replaced(client: AsyncClient, supplied: str) -> None:
+    """The id is printed into every log line, so only `[A-Za-z0-9._-]{1,128}` is kept."""
+    response = await client.get(SAMPLE_PATH, headers={"X-Request-ID": supplied})
+
+    assert re.fullmatch(r"[0-9a-f]{32}", response.headers["x-request-id"])
+
+
 async def test_unhandled_exception_hides_internals() -> None:
     """With DEBUG off, a crash must answer with a problem and leak nothing.
 
-    Built from a fresh app: Starlette short-circuits to an HTML traceback when
-    `debug` is on, so the production path is only observable with it off.
+    Built from a fresh app with `debug` off: under DEBUG the problem's `detail`
+    carries the exception text, so the production path needs it off.
     """
 
     async def explode() -> None:

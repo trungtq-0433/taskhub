@@ -32,6 +32,13 @@ COPY --chown=app:app app ./app
 USER app
 EXPOSE 8000
 
+# Liveness only: /health answers while the process serves HTTP, whatever
+# Postgres or Redis are doing. The start period covers the migrations the
+# entrypoint runs first; failures inside it do not count. The port is the CMD's:
+# an operator who changes one has to change the other.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+
 # Migrations run at container start. Correct at one replica; with several
 # started together they race, and the fix then is a separate pre-deploy step
 # rather than this line.
